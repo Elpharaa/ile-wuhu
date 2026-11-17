@@ -300,6 +300,29 @@ body.demo .demo-banner { display: block; }
 .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 @media (max-width: 680px) {
   .wallet { padding: 4px 8px; }
-  .lb-row .money.pts { display: none; }
+  .by-points .lb-row .money:not(.pts), .by-rubis .lb-row .money.pts { display: none; }
 }
 .form .file-btn { flex: none; flex-direction: row; display: inline-flex; font-size: .88rem; }
+
+/* ---------- Correctifs téléphone ---------- */
+html, body { overflow-x: hidden; }
+#nav { overflow-x: auto; scrollbar-width: none; }
+#nav::-webkit-scrollbar { display: none; }
+#nav a { white-space: nowrap; flex: none; }
+.rr-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.rr-main input { min-width: 0; }
+@media (max-width: 680px) {
+  .topbar { padding: 8px 12px; }
+  #nav { order: 3; flex: 1 1 100%; justify-content: flex-start; margin: 0 -12px; padding: 0 12px; }
+  #nav a { padding: 7px 12px; font-size: .95rem; }
+  .brand span:last-child { font-size: 1rem; }
+  #user { gap: 6px; }
+  #user .btn.sm { padding: 6px 10px; font-size: .8rem; }
+  .page-head h1 { font-size: 1.6rem; }
+  .rr-name { flex: 1 1 calc(100% - 60px); }
+  .rr-pos { width: 64px; }
+  .card { padding: 16px; }
+  .tcard-img, .thead-img { margin-left: -16px; margin-right: -16px; }
+  .search { min-width: 0; width: 100%; }
+  .stats div { padding: 10px 16px; }
+}

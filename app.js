@@ -648,6 +648,7 @@ async function pageLeaderboard() {
   const draw = key => {
     const sorted = [...list].sort((a, b) => b[key] - a[key] || a.username.localeCompare(b.username));
     const podium = sorted.slice(0, 3);
+    $('#lb').className = 'by-' + key;
     $('#lb').innerHTML = `
       <div class="podium">
         ${[1, 0, 2].map(i => podium[i] ? `
@@ -743,9 +744,9 @@ async function pageRoles() {
 
   app.innerHTML = `
     <div class="page-head"><h1>Rôles</h1><button class="btn primary" id="save-roles">Enregistrer</button></div>
-    <p class="small">Sans bot, Discord donne seulement les numéros des rôles. Donne un nom et une couleur à chacun :
-      ils s'afficheront sur les profils. Coche « Masquer » pour les rôles à ne pas montrer.
-      Les rôles apparaissent ici dès qu'un membre qui les a s'est connecté au site.</p>
+    <p class="small">Les rôles de ton serveur Discord, dans le même ordre. Tu peux changer un nom ou une couleur,
+      ou cocher « Masquer » pour qu'un rôle (par exemple celui d'un bot) n'apparaisse pas sur les profils.
+      Si tu crées un nouveau rôle sur Discord, il apparaîtra ici dès qu'un membre qui l'a se connecte.</p>
     ${unnamed ? `<p class="pill-info">${unnamed} rôle${unnamed > 1 ? 's' : ''} à nommer</p>` : ''}
     <div class="roles-table">
       ${ids.map((id, i) => {
@@ -753,6 +754,8 @@ async function pageRoles() {
         const who = holders.get(id) || [];
         return `
         <div class="card role-row ${known.has(id) ? '' : 'unnamed'}" data-id="${esc(id)}">
+          <div class="rr-head">${known.has(id) ? rolePill(r) : '<span class="pill-info">Nouveau rôle</span>'}
+            <span class="small">${who.length} membre${who.length > 1 ? 's' : ''} connecté${who.length > 1 ? 's' : ''}</span></div>
           <div class="rr-main">
             <input type="color" class="rr-color" value="${esc(r.color || '#99aab5')}">
             <input class="rr-name" placeholder="Nom du rôle" value="${esc(r.name)}" maxlength="60">
@@ -760,7 +763,7 @@ async function pageRoles() {
             <label class="rr-hide"><input type="checkbox" class="rr-hidden" ${r.hidden ? 'checked' : ''}> Masquer</label>
             ${known.has(id) ? `<button class="x" data-del="${esc(id)}" title="Oublier ce rôle">✕</button>` : ''}
           </div>
-          <div class="rr-info small">N° ${esc(id)} · ${who.length} membre${who.length > 1 ? 's' : ''}${who.length ? ' : ' + esc(who.slice(0, 6).join(', ')) + (who.length > 6 ? '…' : '') : ''}</div>
+          ${who.length ? `<div class="rr-info small">${esc(who.slice(0, 8).join(', ')) + (who.length > 8 ? '…' : '')}</div>` : ''}
         </div>`;
       }).join('') || '<p class="empty">Aucun rôle pour l\'instant : connecte-toi et invite les membres à se connecter.</p>'}
     </div>`;
