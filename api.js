@@ -99,6 +99,11 @@ async function supabaseApi() {
     },
     saveSetting: async (key, value) => ok(await sb.from('wuhu_settings').upsert({ key, value })),
 
+    // ----- Inscription à toute une compétition -----
+    compMembers: async cid => ok(await sb.from('wuhu_comp_members').select('user_id, joined_at').eq('competition_id', cid).order('joined_at')),
+    joinCompetition: async cid => ok(await sb.rpc('wuhu_join_competition', { p_comp: cid })),
+    leaveCompetition: async cid => ok(await sb.rpc('wuhu_leave_competition', { p_comp: cid })),
+
     // ----- Score déclaré par un joueur du match -----
     reportScore: async (tid, mid, winner, s0, s1) =>
       ok(await sb.rpc('wuhu_report_score', { p_tid: tid, p_mid: mid, p_winner: winner, p_s0: s0, p_s1: s1 })),
@@ -152,6 +157,7 @@ function demoApi() {
   let owned = [['u1', 'fx-feu'], ['u2', 'fx-musique'], ['u0', 'fx-led']];
   let ledger = [];
   let gallery = [];
+  let compRegs = [];
   const settings = {};
   let lid = 1;
   const addL = (user_id, rubis, points, reason, tournament_id = null) =>
@@ -222,6 +228,23 @@ function demoApi() {
     async listGallery() { return clone(gallery); },
     async deleteImage(path) { gallery = gallery.filter(g => g.path !== path); },
     async getTheme() { return clone(settings); },
+    async compMembers(cid) { return clone(compRegs.filter(r => r.competition_id === cid)); },
+    async joinCompetition(cid) {
+      if (!compRegs.some(r => r.competition_id === cid && r.user_id === me.id)) compRegs.push({ competition_id: cid, user_id: me.id, joined_at: new Date().toISOString() });
+      const full = [];
+      db.tournaments.filter(t => t.competition_id === cid && t.status === 'open').forEach(t => {
+        if (db.participants.some(p => p.tournament_id === t.id && p.user_id === me.id)) return;
+        const n = db.participants.filter(p => p.tournament_id === t.id).length;
+        if (t.max_players && n >= t.max_players) full.push(t.name);
+        else db.participants.push({ tournament_id: t.id, user_id: me.id, joined_at: new Date().toISOString() });
+      });
+      notify(); return { full };
+    },
+    async leaveCompetition(cid) {
+      compRegs = compRegs.filter(r => !(r.competition_id === cid && r.user_id === me.id));
+      const open = new Set(db.tournaments.filter(t => t.competition_id === cid && t.status === 'open').map(t => t.id));
+      db.participants = db.participants.filter(p => !(p.user_id === me.id && open.has(p.tournament_id)));
+    },
     async saveSetting(key, value) { settings[key] = clone(value); },
     async reportScore(tid, mid, w, s0, s1) {
       const t = db.tournaments.find(x => x.id === tid);

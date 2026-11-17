@@ -18,9 +18,44 @@ function seedOrder(size) {
 }
 
 export function generateBracket(playerIds, format = 'single') {
+  return bracketFromPlacement(placementFor(playerIds), format);
+}
+
+// Place les joueurs (dans l'ordre des têtes de série) sur les cases du 1er tour : 1 contre 8, 4 contre 5…
+export function placementFor(playerIds) {
   const size = nextPow2(Math.max(2, playerIds.length));
+  return seedOrder(size).map(seed => playerIds[seed - 1] ?? null);
+}
+
+// Garde le placement enregistré (modifié par un admin) en l'adaptant aux inscrits :
+// un joueur parti libère sa case, un nouveau prend une case libre. Si la taille de l'arbre change, on le refait.
+export function syncPlacement(saved, playerIds) {
+  const set = new Set(playerIds);
+  const size = nextPow2(Math.max(2, playerIds.length));
+  if (!Array.isArray(saved) || saved.length !== size) {
+    const keep = Array.isArray(saved) && saved.length ? seedOrder(saved.length).map(sd => saved[sd - 1]).filter(id => id && set.has(id)) : [];
+    return placementFor([...keep, ...playerIds.filter(id => !keep.includes(id))]);
+  }
+  const out = saved.map(id => (id && set.has(id) ? id : null));
+  for (const id of playerIds) {
+    if (out.includes(id)) continue;
+    let i = out.findIndex((x, j) => x === null && out[j ^ 1] !== null);
+    if (i < 0) i = out.indexOf(null);
+    out[i] = id;
+  }
+  // évite qu'un joueur soit seul alors qu'un autre match a deux cases vides
+  return out;
+}
+
+export function shuffled(list) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+export function bracketFromPlacement(placed, format = 'single') {
+  const size = placed.length;
   const k = Math.log2(size);
-  const placed = seedOrder(size).map(seed => playerIds[seed - 1] ?? null);
   const matches = [];
   const add = m => { matches.push(m); return m.id; };
 

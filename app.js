@@ -3,7 +3,7 @@
 // =====================================================================
 import { api, DEMO } from './api.js';
 import { CONFIG } from './config.js';
-import { generateBracket, resolveBracket, roundTitle } from './bracket.js';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -397,7 +397,7 @@ function competitionForm(c = null) {
 
 async function pageCompetition(id, tab = 'apercu') {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
-  const [c, ts, members] = await Promise.all([safe(() => api.getCompetition(id)), safe(() => api.tournamentsOf(id)), safe(() => api.listMembers())]);
+  const [c, ts, members, regs] = await Promise.all([safe(() => api.getCompetition(id)), safe(() => api.tournamentsOf(id)), safe(() => api.listMembers()), safe(() => api.compMembers(id))]);
   if (!c) { app.innerHTML = '<p class="empty">Cette compétition n\'existe pas (ou plus).</p>'; return; }
   const tours = ts || [];
   const people = new Map((members || []).map(m => [m.id, m]));
@@ -414,6 +414,9 @@ async function pageCompetition(id, tab = 'apercu') {
   const ranking = [...totals.entries()].filter(([u]) => people.has(u)).sort((a, b) => b[1].points - a[1].points);
 
   const tabs = [['apercu', 'Vue d\'ensemble'], ...tours.map(t => [t.id, t.name])];
+  const regIds = (regs || []).map(r => r.user_id);
+  const registered = regIds.includes(me.id);
+  const openTours = tours.filter(t => t.status === 'open');
   app.innerHTML = `
     <a href="#/tournois" class="back">← Tous les tournois</a>
     <div class="card thead ${c.image_url ? 'with-img' : ''}">
@@ -422,6 +425,13 @@ async function pageCompetition(id, tab = 'apercu') {
       <h1>${esc(c.name)}</h1>
       ${c.starts_at ? `<p class="meta">${I.date} ${esc(fmtDate(c.starts_at))}</p>` : ''}
       ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
+      <div class="actions left comp-join">
+        ${registered
+          ? `<span class="pill-info">${I.inscription} Tu es inscrit à la compétition</span><button class="btn ghost sm" id="leave-c">Me désinscrire</button>`
+          : openTours.length ? `<button class="btn primary" id="join-c">S'inscrire à la compétition</button>` : ''}
+        <span class="small">${regIds.length} inscrit${regIds.length > 1 ? 's' : ''}${openTours.length ? ` · l'inscription vaut pour ${openTours.length > 1 ? `les ${openTours.length} tournois` : 'le tournoi'} encore ouvert${openTours.length > 1 ? 's' : ''}` : ''}</span>
+      </div>
+      ${regIds.length ? `<div class="comp-regs">${regIds.slice(0, 40).map(u => people.get(u)).filter(Boolean).map(p => `<a href="#/profil/${esc(p.id)}" title="${esc(p.username)}">${avatar(p, 'av sm')}</a>`).join('')}${regIds.length > 40 ? `<span class="small">+${regIds.length - 40}</span>` : ''}</div>` : ''}
       ${me.is_admin ? `
       <div class="admin-bar">
         <span class="admin-label">Admin</span>
@@ -481,6 +491,16 @@ async function pageCompetition(id, tab = 'apercu') {
   app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
 
   $('#add-t')?.addEventListener('click', () => tournamentForm(null, id));
+  $('#join-c')?.addEventListener('click', () => safe(async () => {
+    const r = await api.joinCompetition(id);
+    const full = r?.full || [];
+    toast(full.length ? `Inscrit ! Complet, pas d'inscription pour : ${full.join(', ')}` : 'Inscription validée pour toute la compétition !');
+    pageCompetition(id, tab);
+  }));
+  $('#leave-c')?.addEventListener('click', () => safe(async () => {
+    if (!confirm('Te désinscrire de la compétition ? Tu seras retiré de ses tournois qui n\'ont pas encore commencé.')) return;
+    await api.leaveCompetition(id); toast('Tu es désinscrit de la compétition'); pageCompetition(id, tab);
+  }));
   $('#edit-c')?.addEventListener('click', () => competitionForm(c));
   $('#del-c')?.addEventListener('click', () => safe(async () => {
     if (!confirm(`Supprimer la compétition « ${c.name} » ? Ses tournois seront gardés, mais ne seront plus regroupés.`)) return;
@@ -735,6 +755,9 @@ async function pageTournament(id) {
   const champ = res?.champion ? people.get(res.champion) : null;
   const comp = t.competition_id ? await safe(() => api.getCompetition(t.competition_id)) : null;
   // Matchs que je peux renseigner : tous pour un admin, seulement le mien (pas encore joué) pour un joueur
+  const ids = [...people.keys()];
+  const placement = t.status === 'open' && ids.length >= 2 ? syncPlacement(t.seeding, ids) : null;
+  const preview = placement ? bracketFromPlacement(placement, t.format) : null;
   const canReport = s => s.playable && (me.is_admin || (t.status === 'running' && !s.done && s.players.includes(me.id)));
   const myMatch = res ? Object.values(res.state).find(s => !me.is_admin && canReport(s)) : null;
 
@@ -770,7 +793,21 @@ async function pageTournament(id) {
         <h2>Arbre du tournoi</h2>
         ${me.is_admin && t.status !== 'done' ? '<p class="hint">Clique sur un match pour entrer le score. Les joueurs peuvent aussi déclarer le score de leur propre match.</p>' : ''}
         ${myMatch ? '<p class="hint mine-hint">C\'est ton tour ! Clique sur ton match (celui qui clignote) pour déclarer le score une fois joué.</p>' : ''}
-        ${renderBracket(t.bracket, res, people)}
+        ${me.is_admin && t.status === 'running' ? `<div class="edit-bar"><button class="btn ghost sm" id="edit-tree">✏️ Modifier l'arbre</button></div>` : ''}
+        <div id="real-bracket">${renderBracket(t.bracket, res, people)}</div>
+      </section>` : ''}
+
+    ${preview ? `
+      <section>
+        <h2>Aperçu de l'arbre</h2>
+        <p class="hint">${me.is_admin
+          ? 'Voici l\'arbre tel qu\'il sera lancé. Clique sur un joueur puis sur un autre (ou sur une case « Exempt ») pour les échanger.'
+          : 'Voici l\'arbre provisoire : il peut encore changer jusqu\'au lancement.'}</p>
+        ${me.is_admin ? `<div class="edit-bar">
+          <button class="btn ghost sm" id="shuffle">🔀 Mélanger au hasard</button>
+          <button class="btn ghost sm" id="reset-order">Ordre d'inscription</button>
+        </div>` : ''}
+        <div id="preview-bracket" class="${me.is_admin ? 'swappable' : ''}">${renderBracket(preview, resolveBracket(preview), people)}</div>
       </section>` : ''}
 
     <section>
@@ -803,12 +840,44 @@ async function pageTournament(id) {
     await api.updateTournament(id, { status: 'open', bracket: null, winner_id: null });
     await syncRewards(t, null); renderNav(); reload();
   }));
-  $('#launch')?.addEventListener('click', () => launchDialog(t, [...people.keys()], reload));
+  $('#launch')?.addEventListener('click', () => launchDialog(t, placement, reload));
+
+  // ----- Aperçu (avant lancement) : échanger, mélanger -----
+  const savePlacement = pl => safe(async () => { await api.updateTournament(t.id, { seeding: pl }); reload(); });
+  $('#shuffle')?.addEventListener('click', () => savePlacement(placementFor(shuffled(ids))));
+  $('#reset-order')?.addEventListener('click', () => savePlacement(placementFor(ids)));
+  if (me.is_admin && preview) wireSwap($('#preview-bracket'), (a, b) => {
+    const pl = [...placement]; [pl[a], pl[b]] = [pl[b], pl[a]]; savePlacement(pl);
+  });
+
+  // ----- Arbre lancé : un admin peut échanger les joueurs du 1er tour -----
+  $('#edit-tree')?.addEventListener('click', () => {
+    const box = $('#real-bracket');
+    const on = box.classList.toggle('swappable');
+    $('#edit-tree').textContent = on ? '✔ Terminer la modification' : '✏️ Modifier l\'arbre';
+    if (on) {
+      toast('Clique sur deux joueurs du 1er tour pour les échanger');
+      wireSwap(box, (a, b) => safe(async () => {
+        const bracket = structuredClone(t.bracket);
+        const W1 = bracket.matches.filter(m => m.b === 'W' && m.r === 1);
+        const slotOf = n => W1[Math.floor(n / 2)].slots[n % 2];
+        const touched = new Set([W1[Math.floor(a / 2)].id, W1[Math.floor(b / 2)].id]);
+        if ([...touched].some(mid => bracket.results?.[mid]) &&
+            !confirm('Ces matchs ont déjà un résultat : il sera effacé. Continuer ?')) return;
+        const pa = slotOf(a).p ?? null, pb = slotOf(b).p ?? null;
+        slotOf(a).p = pb; slotOf(b).p = pa;
+        touched.forEach(mid => delete bracket.results?.[mid]);
+        const r = resolveBracket(bracket);
+        await api.updateTournament(t.id, { bracket, status: r.champion ? 'done' : 'running', winner_id: r.champion ?? null });
+        toast('Arbre modifié'); reload();
+      }));
+    } else reload();
+  });
 
   // Les admins peuvent entrer (ou corriger, même après la fin) un score ;
   // les deux joueurs d'un match peuvent déclarer leur résultat (une seule fois)
   if (t.bracket) {
-    app.querySelectorAll('.match.playable').forEach(el => {
+    app.querySelectorAll('#real-bracket .match.playable').forEach(el => {
       const s = res.state[el.dataset.mid];
       if (!canReport(s)) return;
       el.classList.add('editable');
@@ -829,22 +898,38 @@ async function pageTournament(id) {
   unsubscribe = api.subscribe(id, () => { clearTimeout(timer); timer = setTimeout(() => { if (modal.classList.contains('hidden')) reload(); }, 400); });
 }
 
-function launchDialog(t, ids, reload) {
-  if (ids.length < 2) return toast('Il faut au moins 2 participants', 'err');
+function launchDialog(t, placement, reload) {
+  const n = (placement || []).filter(Boolean).length;
+  if (n < 2) return toast('Il faut au moins 2 participants', 'err');
   const box = openModal(`
     <h2>Lancer « ${esc(t.name)} »</h2>
-    <p>${ids.length} participants · ${FORMAT[t.format]}. Les inscriptions seront fermées.</p>
-    <label class="radio"><input type="radio" name="order" value="random" checked> Placement aléatoire</label>
-    <label class="radio"><input type="radio" name="order" value="join"> Ordre d'inscription (le 1er inscrit = tête de série n°1)</label>
+    <p>${n} participants · ${FORMAT[t.format]}. Les inscriptions seront fermées.</p>
+    <p class="small">L'arbre lancé sera celui de l'aperçu (tu peux encore le modifier après le lancement).</p>
+    <label class="radio"><input type="checkbox" id="mix"> Mélanger au hasard juste avant de lancer</label>
     <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="go">C'est parti !</button></div>`);
   $('#go', box).addEventListener('click', () => safe(async () => {
-    const order = $('input[name=order]:checked', box).value;
-    const list = [...ids];
-    if (order === 'random') for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
-    const bracket = generateBracket(list, t.format);
-    await api.updateTournament(t.id, { status: 'running', bracket, winner_id: null });
+    const pl = $('#mix', box).checked ? placementFor(shuffled(placement.filter(Boolean))) : placement;
+    const bracket = bracketFromPlacement(pl, t.format);
+    await api.updateTournament(t.id, { status: 'running', bracket, seeding: pl, winner_id: null });
     closeModal(); toast('Le tournoi commence !'); reload();
   }));
+}
+
+// Échange de deux cases du 1er tour : clic sur une case, puis sur une autre
+function wireSwap(root, onSwap) {
+  let first = null;
+  root.querySelectorAll('.match[data-mid^="W1-"] .mslot').forEach(el => {
+    el.classList.add('pickable');
+    el.addEventListener('click', e => {
+      if (!root.classList.contains('swappable')) return;
+      e.stopPropagation();
+      const n = Number(el.closest('.match').dataset.mid.split('-')[1]) * 2 + Number(el.dataset.si);
+      if (first === null) { first = n; el.classList.add('picked'); return; }
+      root.querySelectorAll('.picked').forEach(x => x.classList.remove('picked'));
+      const a = first; first = null;
+      if (a !== n) onSwap(a, n);
+    });
+  });
 }
 
 function scoreDialog(t, s, people, reload, asPlayer = false) {
@@ -939,7 +1024,7 @@ function matchCard(s, people, keepGhost) {
     if (p) label = `${avatar(p, 'av xs')}<span class="name">${uname(p)}</span>`;
     else if (s.deadSlot[idx]) label = `<span class="name muted">Exempt</span>`;
     else label = `<span class="name muted">En attente…</span>`;
-    return `<div class="mslot ${isW ? 'win' : ''} ${isL ? 'lose' : ''}">${label}<span class="score">${isW && sc === '' ? '✓' : esc(sc)}</span></div>`;
+    return `<div class="mslot ${isW ? 'win' : ''} ${isL ? 'lose' : ''}" data-si="${idx}">${label}<span class="score">${isW && sc === '' ? '✓' : esc(sc)}</span></div>`;
   };
   return `<div class="match ${s.playable ? 'playable' : ''} ${s.done ? 'done' : ''} ${s.bye ? 'bye' : ''}" data-mid="${esc(s.id)}">${slot(0)}${slot(1)}</div>`;
 }
