@@ -14,7 +14,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const $ = (sel, root = document) => root.querySelector(sel);
 const DEFAULT_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';
 const avatar = (p, cls = 'av') => `<img class="${cls}" src="${esc(p?.avatar_url || DEFAULT_AVATAR)}" alt="" loading="lazy">`;
-const rolePill = r => `<span class="role" style="--rc:${esc(r.color || '#99aab5')}"><i></i>${esc(r.name)}</span>`;
+const rolePill = r => `<span class="role" style="--rc:${esc(r.color || '#99aab5')}" title="${esc(r.name)}"><i></i><span class="rn">${esc(r.name)}</span></span>`;
 // Rôles du membre (identifiants Discord → noms définis par les admins)
 const rolesOf = p => (p?.roles || []).map(id => state.roles.get(id)).filter(r => r && !r.hidden)
   .sort((a, b) => a.position - b.position);
@@ -287,11 +287,13 @@ function tournamentForm(t = null) {
       <div class="img-field">
         <span>Image du tournoi</span>
         <div class="img-preview" id="img-prev" style="${t?.image_url ? `background-image:url('${esc(t.image_url)}')` : ''}">${t?.image_url ? '' : 'Aucune image'}</div>
+        <div class="cropper hidden" id="cropper"><img alt="" draggable="false"><div class="crop-hint">Glisse pour déplacer</div></div>
+        <label class="zoom-row hidden" id="zoom-row">🔍<input type="range" id="zoom" min="1" max="4" step="0.01" value="1"></label>
         <div class="row">
           <label class="btn ghost sm file-btn">Choisir une image<input type="file" id="img-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
           <button type="button" class="btn ghost sm" id="img-clear">Retirer</button>
         </div>
-        <small class="muted">PNG, JPG, WEBP ou GIF, 5 Mo maximum.</small>
+        <small class="muted">PNG, JPG ou WEBP. Recadre ton image en la déplaçant et en zoomant.</small>
       </div>
       <details class="rewards">
         <summary>Récompenses (${RUBY} rubis et ⭐ points)</summary>
@@ -324,7 +326,7 @@ function tournamentForm(t = null) {
     const btn = e.target.querySelector('button.primary');
     btn.disabled = true;
     await safe(async () => {
-      if (imgFile) { btn.textContent = 'Envoi de l\'image…'; data.image_url = await api.uploadImage(imgFile); }
+      if (crop) { btn.textContent = 'Envoi de l\'image…'; data.image_url = await api.uploadImage(await crop.toFile()); }
       else if (imgCleared) data.image_url = null;
       if (t) { await api.updateTournament(t.id, data); toast('Tournoi modifié'); route(); }
       else { const x = await api.createTournament(data); toast('Tournoi créé !'); location.hash = '#/tournoi/' + x.id; }
@@ -332,18 +334,107 @@ function tournamentForm(t = null) {
     });
     btn.disabled = false;
   });
-  let imgFile = null, imgCleared = false;
+  let crop = null, imgCleared = false;
   const prev = $('#img-prev', box);
-  $('#img-file', box).addEventListener('change', e => {
+  $('#img-file', box).addEventListener('change', async e => {
     const f = e.target.files[0];
     if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { toast('Image trop lourde (5 Mo maximum)', 'err'); return; }
-    imgFile = f; imgCleared = false;
-    prev.style.backgroundImage = `url('${URL.createObjectURL(f)}')`; prev.textContent = '';
+    if (f.size > 20 * 1024 * 1024) { toast('Image trop lourde (20 Mo maximum)', 'err'); return; }
+    imgCleared = false;
+    prev.classList.add('hidden');
+    crop = await makeCropper($('#cropper', box), $('#zoom', box), f);
+    $('#zoom-row', box).classList.remove('hidden');
   });
   $('#img-clear', box).addEventListener('click', () => {
-    imgFile = null; imgCleared = true; prev.style.backgroundImage = ''; prev.textContent = 'Aucune image';
+    crop = null; imgCleared = true;
+    $('#cropper', box).classList.add('hidden'); $('#zoom-row', box).classList.add('hidden');
+    prev.classList.remove('hidden'); prev.style.backgroundImage = ''; prev.textContent = 'Aucune image';
   });
+}
+
+// ---------- Recadrage d'image (format 2:1) ----------
+const CROP_W = 1200, CROP_H = 600;
+function makeCropper(box, zoomInput, file) {
+  return new Promise((resolve, reject) => {
+    const img = box.querySelector('img');
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      box.classList.remove('hidden');
+      const nw = img.naturalWidth, nh = img.naturalHeight;
+      let W, H, base, zoom = 1, x = 0, y = 0;
+      const measure = () => { W = box.clientWidth; H = box.clientHeight; base = Math.max(W / nw, H / nh); };
+      const clamp = () => {
+        const s = base * zoom;
+        x = Math.min(0, Math.max(W - nw * s, x));
+        y = Math.min(0, Math.max(H - nh * s, y));
+      };
+      const draw = () => {
+        clamp();
+        const s = base * zoom;
+        img.style.width = nw * s + 'px'; img.style.height = nh * s + 'px';
+        img.style.transform = `translate(${x}px, ${y}px)`;
+      };
+      measure();
+      x = (W - nw * base) / 2; y = (H - nh * base) / 2;
+      zoomInput.value = 1;
+      draw();
+      // Zoom en gardant le centre du cadre au même endroit
+      const setZoom = z => {
+        const old = base * zoom; zoom = Math.min(4, Math.max(1, z)); const s = base * zoom;
+        x = W / 2 - (W / 2 - x) * s / old; y = H / 2 - (H / 2 - y) * s / old;
+        zoomInput.value = zoom; draw();
+      };
+      zoomInput.oninput = () => setZoom(Number(zoomInput.value));
+      box.onwheel = e => { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); };
+      // Glisser (souris et doigt), et pincer pour zoomer sur téléphone
+      const pts = new Map();
+      let last = null, pinch = null;
+      box.onpointerdown = e => { box.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; box.classList.add('dragging'); };
+      box.onpointermove = e => {
+        if (!pts.has(e.pointerId)) return;
+        pts.set(e.pointerId, [e.clientX, e.clientY]);
+        if (pts.size === 2) {
+          const [a, b] = [...pts.values()];
+          const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          if (pinch) setZoom(zoom * d / pinch);
+          pinch = d; return;
+        }
+        x += e.clientX - last[0]; y += e.clientY - last[1]; last = [e.clientX, e.clientY]; draw();
+      };
+      box.onpointerup = box.onpointercancel = e => {
+        pts.delete(e.pointerId); pinch = null; box.classList.remove('dragging');
+        const rest = [...pts.values()][0]; if (rest) last = rest;
+      };
+      window.addEventListener('resize', () => { const fx = x / W, fy = y / H; measure(); x = fx * W; y = fy * H; draw(); });
+      resolve({
+        toFile: () => new Promise(res => {
+          const s = base * zoom;
+          const c = document.createElement('canvas'); c.width = CROP_W; c.height = CROP_H;
+          c.getContext('2d').drawImage(img, -x / s, -y / s, W / s, H / s, 0, 0, CROP_W, CROP_H);
+          c.toBlob(b => res(new File([b], 'tournoi.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.88);
+        }),
+      });
+    };
+    img.onerror = () => { toast('Impossible de lire cette image', 'err'); reject(new Error('image')); };
+    img.src = url;
+  });
+}
+
+// ---------- Encadré des récompenses ----------
+function rewardsBox(t) {
+  const R = rewardsOf(t);
+  const gain = g => `<span class="rw-gain">${g.points ? `<b class="rw-pts">+${g.points} pts</b>` : ''}${g.rubis ? `<b class="rw-rb">${RUBY} +${g.rubis}</b>` : ''}${!g.points && !g.rubis ? '<span class="muted">—</span>' : ''}</span>`;
+  const items = [
+    ['🏆', 'Vainqueur', R.first], ['🥈', '2e place', R.second], ['🥉', '3e place', R.third],
+    ['🎟️', 'Participation', R.participation], ['⚔️', 'Par match gagné', R.win],
+  ].filter(([, , g]) => g.points || g.rubis);
+  if (!items.length) return '';
+  return `<div class="rewards-box">
+    <div class="rw-title">Récompenses</div>
+    <div class="rw-grid">${items.map(([ic, label, g]) => `
+      <div class="rw-item"><span class="rw-icon">${ic}</span><span class="rw-label">${label}</span>${gain(g)}</div>`).join('')}
+    </div>
+  </div>`;
 }
 
 // ---------- Page d'un tournoi ----------
@@ -367,8 +458,7 @@ async function pageTournament(id) {
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
       ${t.starts_at ? `<p class="meta">📅 ${esc(fmtDate(t.starts_at))}</p>` : ''}
       ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
-      <div class="reward-line">À gagner : 🏆 ${pts(rewardsOf(t).first.points)} ${rubis(rewardsOf(t).first.rubis)}
-        · participation ${pts(rewardsOf(t).participation.points)} ${rubis(rewardsOf(t).participation.rubis)}</div>
+      ${rewardsBox(t)}
       <div class="actions left">
         ${t.status === 'open' && !joined && !full ? '<button class="btn primary" id="join">Participer</button>' : ''}
         ${t.status === 'open' && joined ? '<button class="btn ghost" id="leave">Me désinscrire</button>' : ''}
@@ -704,18 +794,48 @@ async function pageShop() {
         <div class="color-preview"><span class="uname" style="${esc(colorCss(c.style))}">${esc(me.username)}</span></div>
         <strong>${esc(c.name)}</strong>
         ${rubis(c.price)}
+        <button class="btn ghost sm" data-preview="${esc(c.id)}">👀 Voir le rendu</button>
         ${me.name_color === c.id ? '<span class="pill-info">Équipée</span>'
           : have.has(c.id) ? `<button class="btn ghost sm" data-equip="${esc(c.id)}">Équiper</button>`
           : `<button class="btn primary sm" data-buy="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Acheter</button>`}
       </div>`).join('')}
     </div>`;
-  app.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => safe(async () => {
-    const c = state.colors.get(b.dataset.buy);
+  const buy = c => safe(async () => {
     if (!confirm(`Acheter « ${c.name} » pour ${c.price} rubis ?`)) return;
     await api.buyColor(c.id);
     state.me.name_color = c.id;
-    toast('Nouvelle couleur équipée !'); await loadBalances(); renderNav(); pageShop();
-  })));
+    closeModal(); toast('Nouvelle couleur équipée !'); await loadBalances(); renderNav(); pageShop();
+  });
+  app.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => buy(state.colors.get(b.dataset.buy))));
+  app.querySelectorAll('[data-preview]').forEach(b => b.addEventListener('click', () => {
+    const c = state.colors.get(b.dataset.preview);
+    const fake = { ...me, name_color: c.id };
+    const box = openModal(`
+      <h2>Aperçu : ${esc(c.name)}</h2>
+      <p class="small">Voici ton pseudo avec cette couleur, à différents endroits du site.</p>
+      <div class="pv">
+        <div class="pv-label">Profil</div>
+        <div class="pv-profile">${avatar(me, 'av lg')}<div><div class="pv-big">${uname(fake)}</div><div class="roles">${rolesOf(me).slice(0, 2).map(rolePill).join('')}</div></div></div>
+        <div class="pv-label">Classement</div>
+        <div class="lb-row"><span class="lb-rank">1</span>${avatar(me, 'av sm')}<span class="lb-name">${uname(fake)}</span>${pts(bal(me.id).points)}</div>
+        <div class="pv-label">Arbre de tournoi</div>
+        <div class="match done pv-match">
+          <div class="mslot win">${avatar(me, 'av xs')}<span class="name">${uname(fake)}</span><span class="score">3</span></div>
+          <div class="mslot lose"><img class="av xs" src="${DEFAULT_AVATAR}" alt=""><span class="name">Adversaire</span><span class="score">1</span></div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" data-close>Fermer</button>
+        ${me.name_color === c.id ? '<span class="pill-info">Déjà équipée</span>'
+          : have.has(c.id) ? '<button class="btn primary" id="pv-equip">Équiper</button>'
+          : `<button class="btn primary" id="pv-buy" ${money < c.price ? 'disabled' : ''}>Acheter pour ${c.price} rubis</button>`}
+      </div>
+      ${!have.has(c.id) && money < c.price ? `<p class="small center">Il te manque ${c.price - money} rubis.</p>` : ''}`);
+    $('#pv-buy', box)?.addEventListener('click', () => buy(c));
+    $('#pv-equip', box)?.addEventListener('click', () => safe(async () => {
+      await api.equipColor(c.id); state.me.name_color = c.id; closeModal(); toast('Couleur changée'); renderNav(); pageShop();
+    }));
+  }));
   app.querySelectorAll('[data-equip]').forEach(b => b.addEventListener('click', () => safe(async () => {
     const id = b.dataset.equip || null;
     await api.equipColor(id);

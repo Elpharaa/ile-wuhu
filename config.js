@@ -8,5 +8,5 @@ export const CONFIG = {
   SUPABASE_ANON_KEY: 'sb_publishable_7QzrmTqJDI6hk7gUn67rXw_MkmbCzqI',
 
   // Lien d'invitation affiché aux personnes qui ne sont pas sur le serveur (optionnel)
-  DISCORD_INVITE: '',
+  DISCORD_INVITE: 'https://discord.com/channels/998328199488471060',
 };
