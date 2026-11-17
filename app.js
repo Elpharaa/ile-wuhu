@@ -441,6 +441,7 @@ async function pageCompetition(id, tab = 'apercu') {
       <div class="admin-bar">
         <span class="admin-label">Admin</span>
         <button class="btn primary sm" id="add-t">+ Ajouter un tournoi</button>
+        ${openTours.length ? '<button class="btn ghost sm" id="add-players">+ Inscrire des joueurs</button>' : ''}
         <button class="btn ghost sm" id="edit-c">Modifier</button>
         <button class="btn danger sm" id="del-c">Supprimer</button>
       </div>` : ''}
@@ -496,6 +497,15 @@ async function pageCompetition(id, tab = 'apercu') {
   app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
 
   $('#add-t')?.addEventListener('click', () => tournamentForm(null, id));
+  $('#add-players')?.addEventListener('click', () => addPlayersDialog({
+    title: `Inscrire des joueurs à « ${c.name} »`,
+    note: `Ils seront inscrits à ${openTours.length > 1 ? `tous les tournois encore ouverts (${openTours.length})` : 'son tournoi encore ouvert'}.`,
+    already: new Set(regIds),
+    room: null,
+    addMember: uid => api.joinCompetition(id, uid),
+    addGuest: name => api.addGuest(name, null, id),
+    done: () => pageCompetition(id, tab),
+  }));
   $('#join-c')?.addEventListener('click', () => safe(async () => {
     const r = await api.joinCompetition(id);
     const full = r?.full || [];
@@ -816,12 +826,13 @@ async function pageTournament(id) {
       </section>` : ''}
 
     <section>
-      <h2>Participants (${people.size}${t.max_players ? ' / ' + t.max_players : ''})</h2>
+      <div class="page-head"><h2>Participants (${people.size}${t.max_players ? ' / ' + t.max_players : ''})</h2>
+        ${me.is_admin && t.status === 'open' ? '<button class="btn primary sm" id="add-players">+ Ajouter des joueurs</button>' : ''}</div>
       <div class="players">
         ${[...people.entries()].map(([uid, p]) => `
           <div class="player">
             <a href="#/profil/${esc(uid)}">${avatar(p)}${uname(p)}</a>
-            ${topRole(p) ? rolePill(topRole(p)) : ''}
+            ${p.is_guest ? '<span class="guest-tag">Invité</span>' : topRole(p) ? rolePill(topRole(p)) : ''}
             ${me.is_admin && t.status === 'open' ? `<button class="x" data-kick="${esc(uid)}" title="Retirer">✕</button>` : ''}
           </div>`).join('') || '<p class="empty">Personne pour l\'instant. Sois le premier !</p>'}
       </div>
@@ -834,6 +845,14 @@ async function pageTournament(id) {
     if (!confirm('Retirer ce participant ?')) return;
     await api.leave(id, b.dataset.kick); reload();
   })));
+  $('#add-players')?.addEventListener('click', () => addPlayersDialog({
+    title: `Ajouter des joueurs à « ${t.name} »`,
+    already: new Set(people.keys()),
+    room: t.max_players ? t.max_players - people.size : null,
+    addMember: uid => api.join(id, uid),
+    addGuest: name => api.addGuest(name, id, null),
+    done: reload,
+  }));
   $('#edit')?.addEventListener('click', () => tournamentForm(t));
   $('#del')?.addEventListener('click', () => safe(async () => {
     if (!confirm(`Supprimer définitivement « ${t.name} » ?`)) return;
@@ -1044,11 +1063,76 @@ async function pageMembers() {
     <div class="grid members" id="mlist"></div>`;
   const draw = q => {
     $('#mlist').innerHTML = list.filter(p => !q || p.username?.toLowerCase().includes(q) || rolesOf(p).some(r => r.name.toLowerCase().includes(q)))
-      .map(p => `<a class="card member" href="#/profil/${esc(p.id)}">${avatar(p, 'av lg')}<strong>${uname(p)}</strong>${topRole(p) ? rolePill(topRole(p)) : ''}<span class="member-money">${pts(bal(p.id).points)} ${rubis(bal(p.id).rubis)}</span></a>`)
+      .map(p => `<a class="card member" href="#/profil/${esc(p.id)}">${avatar(p, 'av lg')}<strong>${uname(p)}</strong>${p.is_guest ? '<span class="guest-tag">Invité · sans compte</span>' : topRole(p) ? rolePill(topRole(p)) : ''}<span class="member-money">${pts(bal(p.id).points)} ${rubis(bal(p.id).rubis)}</span>${p.is_guest && state.me.is_admin ? `<button class="x" data-delguest="${esc(p.id)}" title="Supprimer cet invité">✕</button>` : ''}</a>`)
       .join('') || '<p class="empty">Aucun membre trouvé.</p>';
   };
   draw('');
   $('#q').addEventListener('input', e => draw(e.target.value.trim().toLowerCase()));
+  $('#mlist').addEventListener('click', e => {
+    const b = e.target.closest('[data-delguest]'); if (!b) return;
+    e.preventDefault();
+    safe(async () => {
+      if (!confirm('Supprimer cet invité ? Il sera retiré de tous les tournois pas encore terminés et perdra ses points et rubis.')) return;
+      await api.deleteGuest(b.dataset.delguest); toast('Invité supprimé'); pageMembers();
+    });
+  });
+}
+
+// ---------- Ajout manuel de joueurs (admins) : membres du site ou invités sans compte ----------
+async function addPlayersDialog({ title, note, already, room, addMember, addGuest, done }) {
+  const all = (await safe(() => api.listMembers()) || []).filter(m => !already.has(m.id));
+  const box = openModal(`
+    <h2>${esc(title)}</h2>
+    ${note ? `<p class="small">${esc(note)}</p>` : ''}
+    ${room !== null ? `<p class="small">Places restantes : <b id="room">${Math.max(0, room)}</b></p>` : ''}
+    <h3>Membres du site</h3>
+    <input class="search" id="ap-q" placeholder="Rechercher un membre…">
+    <div class="ap-list" id="ap-list"></div>
+    <div class="actions"><button class="btn primary" id="ap-add" disabled>Ajouter la sélection</button></div>
+    <h3>Joueur sans compte</h3>
+    <p class="small">Pour quelqu'un qui ne s'est jamais connecté au site : il apparaîtra avec la mention « Invité ».</p>
+    <div class="row ap-guest"><input id="ap-name" maxlength="40" placeholder="Pseudo du joueur"><button class="btn ghost" id="ap-guest">Ajouter l'invité</button></div>
+    <div class="actions"><button class="btn ghost" data-close>Fermer</button></div>`);
+  const picked = new Set();
+  const left = () => room === null ? Infinity : room - picked.size;
+  const draw = q => {
+    const list = all.filter(m => !q || m.username?.toLowerCase().includes(q));
+    $('#ap-list', box).innerHTML = list.map(m => `
+      <label class="ap-item ${picked.has(m.id) ? 'on' : ''}">
+        <input type="checkbox" value="${esc(m.id)}" ${picked.has(m.id) ? 'checked' : ''}>
+        ${avatar(m, 'av sm')}${uname(m)}${m.is_guest ? '<span class="guest-tag">Invité</span>' : ''}
+      </label>`).join('') || `<p class="empty">${all.length ? 'Aucun membre trouvé.' : 'Tous les membres du site sont déjà inscrits.'}</p>`;
+  };
+  draw('');
+  $('#ap-q', box).addEventListener('input', e => draw(e.target.value.trim().toLowerCase()));
+  $('#ap-list', box).addEventListener('change', e => {
+    const cb = e.target; if (cb.type !== 'checkbox') return;
+    if (cb.checked && left() <= 0) { cb.checked = false; toast('Le tournoi est complet', 'err'); return; }
+    cb.checked ? picked.add(cb.value) : picked.delete(cb.value);
+    cb.closest('.ap-item').classList.toggle('on', cb.checked);
+    $('#ap-add', box).disabled = !picked.size;
+    $('#ap-add', box).textContent = picked.size ? `Ajouter la sélection (${picked.size})` : 'Ajouter la sélection';
+    if ($('#room', box)) $('#room', box).textContent = Math.max(0, left());
+  });
+  $('#ap-add', box).addEventListener('click', () => safe(async () => {
+    const ids = [...picked];
+    for (const uid of ids) await addMember(uid);
+    toast(`${ids.length} joueur${ids.length > 1 ? 's ajoutés' : ' ajouté'} !`);
+    closeModal(); done();
+  }));
+  const addG = () => safe(async () => {
+    const name = $('#ap-name', box).value.trim();
+    if (!name) return toast('Écris le pseudo du joueur', 'err');
+    if (left() <= 0) return toast('Le tournoi est complet', 'err');
+    await addGuest(name);
+    if (room !== null) room--;
+    if ($('#room', box)) $('#room', box).textContent = Math.max(0, left());
+    $('#ap-name', box).value = '';
+    toast(`${name} a été ajouté`);
+    done();
+  });
+  $('#ap-guest', box).addEventListener('click', addG);
+  $('#ap-name', box).addEventListener('keydown', e => { if (e.key === 'Enter') addG(); });
 }
 
 // ---------- Profil ----------

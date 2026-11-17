@@ -16,7 +16,7 @@ async function supabaseApi() {
     auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true },
   });
   const ok = ({ data, error }) => { if (error) throw error; return data; };
-  const PROFILE_COLS = 'id, username, avatar_url, roles, in_guild, is_admin, name_color';
+  const PROFILE_COLS = 'id, username, avatar_url, roles, in_guild, is_admin, name_color, is_guest';
 
   return {
     async init() {
@@ -101,7 +101,9 @@ async function supabaseApi() {
 
     // ----- Inscription à toute une compétition -----
     compMembers: async cid => ok(await sb.from('wuhu_comp_members').select('user_id, joined_at').eq('competition_id', cid).order('joined_at')),
-    joinCompetition: async cid => ok(await sb.rpc('wuhu_join_competition', { p_comp: cid })),
+    joinCompetition: async (cid, uid) => ok(await sb.rpc('wuhu_join_competition', uid ? { p_comp: cid, p_user: uid } : { p_comp: cid })),
+    addGuest: async (name, tid, cid) => ok(await sb.rpc('wuhu_add_guest', { p_name: name, p_tournament: tid || null, p_competition: cid || null })),
+    deleteGuest: async gid => ok(await sb.rpc('wuhu_delete_guest', { p_id: gid })),
     leaveCompetition: async cid => ok(await sb.rpc('wuhu_leave_competition', { p_comp: cid })),
 
     // ----- Score déclaré par un joueur du match -----
@@ -229,16 +231,28 @@ function demoApi() {
     async deleteImage(path) { gallery = gallery.filter(g => g.path !== path); },
     async getTheme() { return clone(settings); },
     async compMembers(cid) { return clone(compRegs.filter(r => r.competition_id === cid)); },
-    async joinCompetition(cid) {
-      if (!compRegs.some(r => r.competition_id === cid && r.user_id === me.id)) compRegs.push({ competition_id: cid, user_id: me.id, joined_at: new Date().toISOString() });
+    async joinCompetition(cid, uid = me.id) {
+      if (!compRegs.some(r => r.competition_id === cid && r.user_id === uid)) compRegs.push({ competition_id: cid, user_id: uid, joined_at: new Date().toISOString() });
       const full = [];
       db.tournaments.filter(t => t.competition_id === cid && t.status === 'open').forEach(t => {
-        if (db.participants.some(p => p.tournament_id === t.id && p.user_id === me.id)) return;
+        if (db.participants.some(p => p.tournament_id === t.id && p.user_id === uid)) return;
         const n = db.participants.filter(p => p.tournament_id === t.id).length;
         if (t.max_players && n >= t.max_players) full.push(t.name);
-        else db.participants.push({ tournament_id: t.id, user_id: me.id, joined_at: new Date().toISOString() });
+        else db.participants.push({ tournament_id: t.id, user_id: uid, joined_at: new Date().toISOString() });
       });
       notify(); return { full };
+    },
+    async addGuest(name, tid, cid) {
+      const g = { id: 'g' + Date.now() + Math.random().toString(36).slice(2, 6), username: name.trim(), avatar_url: null, roles: [], in_guild: true, is_admin: false, name_color: null, is_guest: true };
+      members.push(g);
+      if (tid) db.participants.push({ tournament_id: tid, user_id: g.id, joined_at: new Date().toISOString() });
+      if (cid) await this.joinCompetition(cid, g.id);
+      notify(); return g.id;
+    },
+    async deleteGuest(gid) {
+      const i = members.findIndex(m => m.id === gid && m.is_guest); if (i >= 0) members.splice(i, 1);
+      db.participants = db.participants.filter(p => p.user_id !== gid);
+      compRegs = compRegs.filter(r => r.user_id !== gid);
     },
     async leaveCompetition(cid) {
       compRegs = compRegs.filter(r => !(r.competition_id === cid && r.user_id === me.id));

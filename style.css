@@ -657,3 +657,17 @@ body.has-bg main .back:not(:is(.card, .modal, dialog) *) { display: inline-block
 body.has-bg main .hero :is(h1, .hero-money, .roles) { margin-left: auto; margin-right: auto; }
 body.has-bg main .hero .hero-money { width: fit-content; padding: 4px 14px; border-radius: 999px; background: rgba(255, 255, 255, .8); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 body.has-bg main .page-head { flex-wrap: wrap; gap: 10px; }
+
+/* Ajout manuel de joueurs */
+.guest-tag { display: inline-block; font-size: .72rem; font-weight: 800; padding: 2px 8px; border-radius: 999px;
+  background: #fff3d6; color: #9a6a00; border: 1px solid #f3d27a; white-space: nowrap; }
+.ap-list { max-height: 280px; overflow: auto; display: grid; gap: 6px; margin: 8px 0; padding: 4px; border-radius: 14px; background: #f4fbff; }
+.ap-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 12px; background: #fff; cursor: pointer;
+  border: 2px solid transparent; transition: border-color .15s, background .15s; }
+.ap-item:hover { border-color: var(--line); }
+.ap-item.on { border-color: var(--sea); background: #e9f8ff; }
+.ap-item input { width: 18px; height: 18px; accent-color: var(--sea); }
+.ap-guest { display: flex; gap: 8px; flex-direction: row !important; }
+.ap-guest input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--line); font: inherit; }
+.card.member { position: relative; }
+.card.member .x { position: absolute; top: 8px; right: 8px; }
