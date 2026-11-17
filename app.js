@@ -31,7 +31,6 @@ const pts = n => `<span class="money pts">${I.points}<b>${Number(n || 0).toLocal
 // ---------- Icônes personnalisables (Paramètres → Icônes) ----------
 const ICON_SLOTS = [
   ['logo', 'Logo du site', '🏝️'],
-  ['ile', 'Illustration de l\'accueil', null],
   ['rubis', 'Rubis', null],
   ['points', 'Points', '⭐'],
   ['trophee', 'Trophée / vainqueur', '🏆'],
@@ -167,6 +166,15 @@ function openModal(html) {
 function closeModal() { modal.classList.add('hidden'); }
 modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-close]')) closeModal(); });
 
+// Petite onde au clic sur les boutons
+document.addEventListener('pointerdown', e => {
+  const b = e.target.closest?.('.btn'); if (!b || b.disabled) return;
+  const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height);
+  const w = document.createElement('span'); w.className = 'ripple';
+  w.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d / 2}px;top:${e.clientY - r.top - d / 2}px`;
+  b.appendChild(w); setTimeout(() => w.remove(), 600);
+});
+
 // ---------- Thème : fond d'écran et logo ----------
 async function loadTheme() {
   const t = await safe(() => api.getTheme()) || {};
@@ -260,7 +268,6 @@ const ISLAND_SVG = `
 function pageLanding() {
   app.innerHTML = `
     <section class="hero">
-      ${I.ile}
       <h1>Bienvenue sur l'île Wuhu</h1>
       <p>Le site du serveur : tes rôles, ton profil et tous les tournois de l'île.</p>
       <button class="btn discord big" id="login2">Se connecter avec Discord</button>
@@ -273,7 +280,6 @@ function pageNotMember() {
   const err = state.me.syncError;
   app.innerHTML = `
     <section class="hero">
-      ${I.ile}
       <h1>${err ? 'Connexion à Discord impossible' : 'Tu n\'es pas encore sur l\'île !'}</h1>
       <p>${err
         ? 'Le site n\'a pas réussi à récupérer tes rôles. Réessaie dans un instant.'
@@ -305,7 +311,6 @@ async function pageHome() {
   const running = list.filter(t => t.status === 'running');
   app.innerHTML = `
     <section class="hero small-hero">
-      ${I.ile}
       <h1>Salut ${uname(me)} !</h1>
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
       <div class="roles center">${rolesOf(me).map(rolePill).join('')}</div>
