@@ -6,14 +6,15 @@ import { CONFIG } from './config.js';
 import { generateBracket, resolveBracket, roundTitle } from './bracket.js';
 
 const app = document.getElementById('app');
-const state = { me: null, roles: new Map(), colors: new Map(), balances: new Map() };
+const state = { me: null, roles: new Map(), colors: new Map(), balances: new Map(), theme: {}, icons: {} };
 let unsubscribe = null;
 
 // ---------- Petits outils ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (sel, root = document) => root.querySelector(sel);
 const DEFAULT_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';
-const avatar = (p, cls = 'av') => `<img class="${cls}" src="${esc(p?.avatar_url || DEFAULT_AVATAR)}" alt="" loading="lazy">`;
+const defAvatar = () => state.icons.avatar || DEFAULT_AVATAR;
+const avatar = (p, cls = 'av') => `<img class="${cls}" src="${esc(p?.avatar_url || defAvatar())}" alt="" loading="lazy">`;
 const rolePill = r => `<span class="role" style="--rc:${esc(r.color || '#99aab5')}" title="${esc(r.name)}"><i></i><span class="rn">${esc(r.name)}</span></span>`;
 // Rôles du membre (identifiants Discord → noms définis par les admins)
 const rolesOf = p => (p?.roles || []).map(id => state.roles.get(id)).filter(r => r && !r.hidden)
@@ -24,18 +25,50 @@ async function loadRoles() {
   state.roles = new Map(list.map(r => [r.id, r]));
 }
 // ---------- Rubis, points, couleurs de pseudo ----------
-const RUBY = '<svg class="ruby" viewBox="0 0 24 24" aria-label="rubis"><path d="M6.5 3h11L22 9 12 21 2 9z" fill="#e0245e"/><path d="M2 9h20M6.5 3 9 9l3 12 3-12 2.5-6M9 9l3-6 3 6" fill="none" stroke="#ffb3c6" stroke-width="1.1" stroke-linejoin="round"/></svg>';
-const rubis = n => `<span class="money">${RUBY}<b>${Number(n || 0).toLocaleString('fr-FR')}</b></span>`;
-const pts = n => `<span class="money pts">⭐<b>${Number(n || 0).toLocaleString('fr-FR')}</b></span>`;
-const colorCss = style => !style ? '' : style.startsWith('linear')
-  ? `background:${style};-webkit-background-clip:text;background-clip:text;color:transparent`
-  : `color:${style}`;
-function nameStyle(p) {
-  const c = p?.name_color && state.colors.get(p.name_color);
-  if (c) return colorCss(c.style);
-  return colorCss(topRole(p)?.color);
+const RUBY_SVG = '<svg class="ruby" viewBox="0 0 24 24" aria-label="rubis"><path d="M6.5 3h11L22 9 12 21 2 9z" fill="#e0245e"/><path d="M2 9h20M6.5 3 9 9l3 12 3-12 2.5-6M9 9l3-6 3 6" fill="none" stroke="#ffb3c6" stroke-width="1.1" stroke-linejoin="round"/></svg>';
+const rubis = n => `<span class="money">${I.rubis}<b>${Number(n || 0).toLocaleString('fr-FR')}</b></span>`;
+const pts = n => `<span class="money pts">${I.points}<b>${Number(n || 0).toLocaleString('fr-FR')}</b></span>`;
+// ---------- Icônes personnalisables (Paramètres → Icônes) ----------
+const ICON_SLOTS = [
+  ['logo', 'Logo du site', '🏝️'],
+  ['ile', 'Illustration de l\'accueil', null],
+  ['rubis', 'Rubis', null],
+  ['points', 'Points', '⭐'],
+  ['trophee', 'Trophée / vainqueur', '🏆'],
+  ['medal1', 'Médaille d\'or (1er)', '🥇'],
+  ['medal2', 'Médaille d\'argent (2e)', '🥈'],
+  ['medal3', 'Médaille de bronze (3e)', '🥉'],
+  ['participation', 'Participation', '🎟️'],
+  ['match', 'Match / en cours', '⚔️'],
+  ['inscription', 'Inscriptions ouvertes', '📝'],
+  ['date', 'Date', '📅'],
+  ['avatar', 'Avatar par défaut', null],
+];
+const iconDefault = k => k === 'rubis' ? RUBY_SVG : k === 'ile' ? ISLAND_SVG
+  : k === 'avatar' ? `<img class="ic" src="${DEFAULT_AVATAR}" alt="">` : (ICON_SLOTS.find(x => x[0] === k)?.[2] ?? '');
+function icon(k) {
+  const url = state.icons?.[k];
+  if (!url) return iconDefault(k);
+  if (k === 'ile') return `<img class="island island-img" src="${esc(url)}" alt="">`;
+  return `<img class="ic ic-${k} ${k === 'rubis' ? 'ruby' : ''}" src="${esc(url)}" alt="">`;
 }
-const uname = p => `<span class="uname" style="${esc(nameStyle(p))}">${esc(p?.username)}</span>`;
+// I.trophee, I.rubis… renvoient l'image perso si elle existe, sinon l'emoji
+const I = new Proxy({}, { get: (_, k) => icon(k) });
+
+// ---------- Pseudos (couleur du rôle, ou effet acheté en boutique) ----------
+const PER_LETTER = new Set(['led', 'vague']);
+function fxName(name, effect) {
+  const inner = PER_LETTER.has(effect)
+    ? [...String(name ?? '')].map((c, i) => `<span class="ch" style="--i:${i}">${c === ' ' ? '&nbsp;' : esc(c)}</span>`).join('')
+    : esc(name);
+  return `<span class="uname fx fx-${esc(effect)}" data-t="${esc(name)}">${inner}</span>`;
+}
+function uname(p) {
+  const fx = p?.name_color && state.colors.get(p.name_color);
+  if (fx?.effect) return fxName(p.username, fx.effect);
+  const c = topRole(p)?.color;
+  return `<span class="uname" style="${c ? `color:${esc(c)}` : ''}">${esc(p?.username)}</span>`;
+}
 const bal = uid => state.balances.get(uid) || { rubis: 0, points: 0 };
 async function loadColors() {
   const list = await safe(() => api.listColors()) || [];
@@ -99,6 +132,18 @@ async function syncRewards(t, bracket) {
   await loadBalances();
 }
 
+// Un tournoi terminé par un joueur (score déclaré) : un admin distribue les gains à son prochain passage
+async function settlePending() {
+  const list = await safe(() => api.listTournaments()) || [];
+  const done = list.filter(t => t.status === 'done' && t.bracket);
+  if (!done.length) return;
+  const paid = new Set((await safe(() => api.ledgerForTournaments(done.map(t => t.id))) || []).map(l => l.tournament_id));
+  for (const t of done) {
+    if (!paid.has(t.id) && computeRewards(t, t.bracket).length) await safe(() => syncRewards(t, t.bracket));
+  }
+  renderNav();
+}
+
 const FORMAT = { single: 'Élimination directe', double: 'Double élimination' };
 const STATUS = { open: 'Inscriptions ouvertes', running: 'En cours', done: 'Terminé' };
 const fmtDate = d => d ? new Date(d).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
@@ -122,6 +167,27 @@ function openModal(html) {
 function closeModal() { modal.classList.add('hidden'); }
 modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-close]')) closeModal(); });
 
+// ---------- Thème : fond d'écran et logo ----------
+async function loadTheme() {
+  const t = await safe(() => api.getTheme()) || {};
+  state.theme = t.theme || {};
+  state.icons = t.icons || {};
+  applyTheme();
+}
+function applyTheme() {
+  const t = state.theme, b = document.body;
+  b.classList.toggle('has-bg', !!t.background_url);
+  b.classList.toggle('bg-tile', t.fit === 'tile');
+  b.style.setProperty('--bg-img', t.background_url ? `url("${t.background_url.replace(/"/g, '%22')}")` : 'none');
+  b.style.setProperty('--bg-veil', String((t.veil ?? 30) / 100));
+  const logo = $('.brand .logo'); if (logo) logo.innerHTML = I.logo;
+  const fav = document.querySelector('link[rel=icon]');
+  if (fav) {
+    fav.dataset.def ||= fav.href;
+    fav.href = state.icons.logo || fav.dataset.def;
+  }
+}
+
 // =====================================================================
 //  Barre du haut
 // =====================================================================
@@ -130,7 +196,7 @@ function renderNav() {
   const hash = location.hash || '#/';
   const link = (h, label) => `<a href="${h}" class="${hash === h || (h !== '#/' && hash.startsWith(h.replace(/s$/, ''))) ? 'active' : ''}">${label}</a>`;
   $('#nav').innerHTML = me?.in_guild
-    ? link('#/', 'Accueil') + link('#/tournois', 'Tournois') + link('#/classement', 'Classement') + link('#/membres', 'Membres') + link('#/boutique', 'Boutique') + (me.is_admin ? link('#/roles', 'Rôles') : '')
+    ? link('#/', 'Accueil') + link('#/tournois', 'Tournois') + link('#/classement', 'Classement') + link('#/membres', 'Membres') + link('#/boutique', 'Boutique') + (me.is_admin ? link('#/roles', 'Rôles') + link('#/parametres', 'Paramètres') : '')
     : '';
   $('#user').innerHTML = me
     ? `${me.in_guild ? `<a href="#/boutique" class="wallet">${rubis(bal(me.id).rubis)}</a>` : ''}
@@ -161,6 +227,7 @@ async function route() {
     case 'roles': return state.me.is_admin ? pageRoles() : pageHome();
     case 'classement': return pageLeaderboard();
     case 'boutique': return pageShop();
+    case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
   }
 }
@@ -193,7 +260,7 @@ const ISLAND_SVG = `
 function pageLanding() {
   app.innerHTML = `
     <section class="hero">
-      ${ISLAND_SVG}
+      ${I.ile}
       <h1>Bienvenue sur l'île Wuhu</h1>
       <p>Le site du serveur : tes rôles, ton profil et tous les tournois de l'île.</p>
       <button class="btn discord big" id="login2">Se connecter avec Discord</button>
@@ -206,7 +273,7 @@ function pageNotMember() {
   const err = state.me.syncError;
   app.innerHTML = `
     <section class="hero">
-      ${ISLAND_SVG}
+      ${I.ile}
       <h1>${err ? 'Connexion à Discord impossible' : 'Tu n\'es pas encore sur l\'île !'}</h1>
       <p>${err
         ? 'Le site n\'a pas réussi à récupérer tes rôles. Réessaie dans un instant.'
@@ -238,7 +305,7 @@ async function pageHome() {
   const running = list.filter(t => t.status === 'running');
   app.innerHTML = `
     <section class="hero small-hero">
-      ${ISLAND_SVG}
+      ${I.ile}
       <h1>Salut ${uname(me)} !</h1>
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
       <div class="roles center">${rolesOf(me).map(rolePill).join('')}</div>
@@ -266,11 +333,11 @@ function competitionCard(c) {
   const st = compStatus(c);
   return `
     <a class="card ccard status-${st}" href="#/competition/${esc(c.id)}">
-      ${c.image_url ? `<div class="tcard-img" style="background-image:url('${esc(c.image_url)}')"></div>` : '<div class="ccard-banner">🏝️🏆</div>'}
+      ${c.image_url ? `<div class="tcard-img" style="background-image:url('${esc(c.image_url)}')"></div>` : `<div class="ccard-banner">${I.logo}${I.trophee}</div>`}
       <div class="tcard-top"><span class="badge ${st}">${STATUS[st]}</span><span class="fmt">Compétition</span></div>
       <h3>${esc(c.name)}</h3>
-      ${c.starts_at ? `<p class="game">📅 ${esc(fmtDate(c.starts_at))}</p>` : ''}
-      <div class="ccard-list">${ts.map(t => `<span class="chip">${t.status === 'done' ? '🏆' : t.status === 'running' ? '⚔️' : '📝'} ${esc(t.name)}</span>`).join('') || '<span class="muted">Aucun tournoi pour l\'instant</span>'}</div>
+      ${c.starts_at ? `<p class="game">${I.date} ${esc(fmtDate(c.starts_at))}</p>` : ''}
+      <div class="ccard-list">${ts.map(t => `<span class="chip">${t.status === 'done' ? I.trophee : t.status === 'running' ? I.match : I.inscription} ${esc(t.name)}</span>`).join('') || '<span class="muted">Aucun tournoi pour l\'instant</span>'}</div>
     </a>`;
 }
 
@@ -353,7 +420,7 @@ async function pageCompetition(id, tab = 'apercu') {
       ${c.image_url ? `<div class="thead-img" style="background-image:url('${esc(c.image_url)}')"></div>` : ''}
       <div class="tcard-top"><span class="badge ${st}">${STATUS[st]}</span><span class="fmt">Compétition · ${tours.length} tournoi${tours.length > 1 ? 's' : ''}</span></div>
       <h1>${esc(c.name)}</h1>
-      ${c.starts_at ? `<p class="meta">📅 ${esc(fmtDate(c.starts_at))}</p>` : ''}
+      ${c.starts_at ? `<p class="meta">${I.date} ${esc(fmtDate(c.starts_at))}</p>` : ''}
       ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
       ${me.is_admin ? `
       <div class="admin-bar">
@@ -374,7 +441,7 @@ async function pageCompetition(id, tab = 'apercu') {
         <h2>Les tournois</h2>
         <div class="grid">${tours.map(t => {
           const champ = t.winner_id ? people.get(t.winner_id) : null;
-          return tournamentCard(t).replace('</a>', champ ? `<p class="meta">🏆 ${uname(champ)}</p></a>` : '</a>');
+          return tournamentCard(t).replace('</a>', champ ? `<p class="meta">${I.trophee} ${uname(champ)}</p></a>` : '</a>');
         }).join('') || '<p class="empty">Aucun tournoi pour l\'instant.</p>'}</div>
       </section>
       <section>
@@ -383,7 +450,7 @@ async function pageCompetition(id, tab = 'apercu') {
         <div class="lb-table">
           ${ranking.map(([u, x], i) => `
             <a href="#/profil/${esc(u)}" class="lb-row ${u === me.id ? 'me-row' : ''}">
-              <span class="lb-rank">${['🥇', '🥈', '🥉'][i] || i + 1}</span>
+              <span class="lb-rank">${[I.medal1, I.medal2, I.medal3][i] || i + 1}</span>
               ${avatar(people.get(u), 'av sm')}
               <span class="lb-name">${uname(people.get(u))}</span>
               ${pts(x.points)} ${rubis(x.rubis)}
@@ -401,7 +468,7 @@ async function pageCompetition(id, tab = 'apercu') {
       <section>
         <div class="page-head"><h2>${esc(t.name)}</h2><a class="btn ghost sm" href="#/tournoi/${esc(t.id)}">Ouvrir le tournoi →</a></div>
         ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
-        ${res?.champion ? `<div class="card champion small-champ">🏆 ${avatar(ppl.get(res.champion), 'av')} <strong>${uname(ppl.get(res.champion))}</strong></div>` : ''}
+        ${res?.champion ? `<div class="card champion small-champ">${I.trophee} ${avatar(ppl.get(res.champion), 'av')} <strong>${uname(ppl.get(res.champion))}</strong></div>` : ''}
         ${t.bracket ? renderBracket(t.bracket, res, ppl)
           : `<p class="empty">${ppl.size} inscrit${ppl.size > 1 ? 's' : ''}. L'arbre apparaîtra quand le tournoi sera lancé.</p>`}
       </section>`;
@@ -449,10 +516,10 @@ async function tournamentForm(t = null, presetComp = null) {
       </label>
       ${imageFieldHtml('Image du tournoi', t?.image_url)}
       <details class="rewards">
-        <summary>Récompenses (${RUBY} rubis et ⭐ points)</summary>
+        <summary>Récompenses (${I.rubis} rubis et ${I.points} points)</summary>
         <table>
-          <tr><th></th><th>⭐ Points</th><th>Rubis</th></tr>
-          ${[['participation', 'Participation'], ['win', 'Par match gagné'], ['first', '🏆 Champion'], ['second', '🥈 2e'], ['third', '🥉 3e']].map(([k, l]) => `
+          <tr><th></th><th>${I.points} Points</th><th>${I.rubis} Rubis</th></tr>
+          ${[['participation', 'Participation'], ['win', 'Par match gagné'], ['first', `${I.trophee} Champion`], ['second', `${I.medal2} 2e`], ['third', `${I.medal3} 3e`]].map(([k, l]) => `
           <tr><td>${l}</td>
             <td><input type="number" min="0" max="10000" name="rw_${k}_points" value="${rewardsOf(t)[k].points}"></td>
             <td><input type="number" min="0" max="10000" name="rw_${k}_rubis" value="${rewardsOf(t)[k].rubis}"></td></tr>`).join('')}
@@ -496,30 +563,47 @@ function imageFieldHtml(label, url) {
       <div class="img-field">
         <span>${label}</span>
         <div class="img-preview" id="img-prev" style="${url ? `background-image:url('${esc(url)}')` : ''}">${url ? '' : 'Aucune image'}</div>
-        <div class="cropper hidden" id="cropper"><img alt="" draggable="false"><div class="crop-hint">Glisse pour déplacer</div></div>
-        <label class="zoom-row hidden" id="zoom-row">🔍<input type="range" id="zoom" min="1" max="4" step="0.01" value="1"></label>
+        <div class="cropper hidden" id="cropper"><div class="crop-bg"></div><img alt="" draggable="false"><div class="crop-hint">Glisse pour déplacer</div></div>
+        <div class="crop-tools hidden" id="zoom-row">
+          <button type="button" class="btn ghost sm" id="z-out" title="Rétrécir">−</button>
+          <input type="range" id="zoom" min="0.2" max="4" step="0.01" value="1" aria-label="Taille de l'image">
+          <button type="button" class="btn ghost sm" id="z-in" title="Agrandir">+</button>
+          <button type="button" class="btn ghost sm" id="z-fit">Image entière</button>
+          <button type="button" class="btn ghost sm" id="z-fill">Remplir</button>
+        </div>
         <div class="row">
           <label class="btn ghost sm file-btn">Choisir une image<input type="file" id="img-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+          ${url ? '<button type="button" class="btn ghost sm" id="img-recrop">Recadrer l\'image actuelle</button>' : ''}
           <button type="button" class="btn ghost sm" id="img-clear">Retirer</button>
         </div>
-        <small class="muted">PNG, JPG ou WEBP. Recadre ton image en la déplaçant et en zoomant.</small>
+        <small class="muted">Le cadre montre exactement la bannière affichée sur le site. Déplace l'image, et utilise − / + (ou la molette, ou deux doigts) pour la rétrécir ou l'agrandir. « Image entière » la fait tenir en entier, les bords sont alors remplis par un fond flouté.</small>
       </div>`;
 }
 function wireImageField(box) {
   let crop = null, cleared = false;
   const prev = $('#img-prev', box);
+  const start = async f => {
+    cleared = false;
+    prev.classList.add('hidden');
+    crop = await makeCropper($('#cropper', box), $('#zoom', box), f, box);
+    $('#zoom-row', box).classList.remove('hidden');
+  };
   $('#img-file', box).addEventListener('change', async e => {
     const f = e.target.files[0];
     if (!f) return;
     if (f.size > 20 * 1024 * 1024) { toast('Image trop lourde (20 Mo maximum)', 'err'); return; }
-    cleared = false;
-    prev.classList.add('hidden');
-    crop = await makeCropper($('#cropper', box), $('#zoom', box), f);
-    $('#zoom-row', box).classList.remove('hidden');
+    await start(f);
   });
+  $('#img-recrop', box)?.addEventListener('click', () => safe(async () => {
+    const url = (prev.style.backgroundImage.match(/url\("?(.*?)"?\)/) || [])[1];
+    if (!url) return;
+    const blob = await (await fetch(url)).blob();
+    await start(new File([blob], 'image', { type: blob.type || 'image/jpeg' }));
+  }));
   $('#img-clear', box).addEventListener('click', () => {
     crop = null; cleared = true;
     $('#cropper', box).classList.add('hidden'); $('#zoom-row', box).classList.add('hidden');
+    $('#img-recrop', box)?.remove();
     prev.classList.remove('hidden'); prev.style.backgroundImage = ''; prev.textContent = 'Aucune image';
   });
   return {
@@ -530,39 +614,49 @@ function wireImageField(box) {
   };
 }
 
-// ---------- Recadrage d'image (format 2:1) ----------
+// ---------- Recadrage d'image (format 2:1, exactement comme les bannières) ----------
 const CROP_W = 1200, CROP_H = 600;
-function makeCropper(box, zoomInput, file) {
+function makeCropper(box, zoomInput, file, root = document) {
   return new Promise((resolve, reject) => {
     const img = box.querySelector('img');
+    const bg = box.querySelector('.crop-bg');
     const url = URL.createObjectURL(file);
     img.onload = () => {
       box.classList.remove('hidden');
+      if (bg) bg.style.backgroundImage = `url("${url}")`;
       const nw = img.naturalWidth, nh = img.naturalHeight;
-      let W, H, base, zoom = 1, x = 0, y = 0;
-      const measure = () => { W = box.clientWidth; H = box.clientHeight; base = Math.max(W / nw, H / nh); };
-      const clamp = () => {
-        const s = base * zoom;
-        x = Math.min(0, Math.max(W - nw * s, x));
-        y = Math.min(0, Math.max(H - nh * s, y));
+      // zoom = 1 : l'image remplit tout le cadre ; minZoom : l'image tient en entier
+      let W, H, base, minZoom, zoom = 1, x = 0, y = 0;
+      const measure = () => {
+        W = box.clientWidth; H = box.clientHeight;
+        base = Math.max(W / nw, H / nh);
+        minZoom = Math.min(1, Math.min(W / nw, H / nh) / base);
+        zoomInput.min = String(Math.max(0.05, minZoom * 0.5));
       };
+      const clampAxis = (v, size, frame) => size >= frame ? Math.min(0, Math.max(frame - size, v)) : Math.max(0, Math.min(frame - size, v));
       const draw = () => {
-        clamp();
         const s = base * zoom;
+        x = clampAxis(x, nw * s, W); y = clampAxis(y, nh * s, H);
         img.style.width = nw * s + 'px'; img.style.height = nh * s + 'px';
         img.style.transform = `translate(${x}px, ${y}px)`;
+        box.classList.toggle('show-bg', nw * s < W - 1 || nh * s < H - 1);
       };
-      measure();
-      x = (W - nw * base) / 2; y = (H - nh * base) / 2;
-      zoomInput.value = 1;
-      draw();
-      // Zoom en gardant le centre du cadre au même endroit
       const setZoom = z => {
-        const old = base * zoom; zoom = Math.min(4, Math.max(1, z)); const s = base * zoom;
+        const old = base * zoom;
+        zoom = Math.min(4, Math.max(Number(zoomInput.min), z));
+        const s = base * zoom;
         x = W / 2 - (W / 2 - x) * s / old; y = H / 2 - (H / 2 - y) * s / old;
         zoomInput.value = zoom; draw();
       };
+      const center = () => { const s = base * zoom; x = (W - nw * s) / 2; y = (H - nh * s) / 2; draw(); };
+      measure();
+      zoom = 1; zoomInput.value = 1; center();
       zoomInput.oninput = () => setZoom(Number(zoomInput.value));
+      const btn = id => root.querySelector ? root.querySelector(id) : null;
+      if (btn('#z-in')) btn('#z-in').onclick = () => setZoom(zoom * 1.15);
+      if (btn('#z-out')) btn('#z-out').onclick = () => setZoom(zoom / 1.15);
+      if (btn('#z-fit')) btn('#z-fit').onclick = () => { zoom = minZoom; zoomInput.value = zoom; center(); };
+      if (btn('#z-fill')) btn('#z-fill').onclick = () => { zoom = 1; zoomInput.value = zoom; center(); };
       box.onwheel = e => { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); };
       // Glisser (souris et doigt), et pincer pour zoomer sur téléphone
       const pts = new Map();
@@ -583,13 +677,26 @@ function makeCropper(box, zoomInput, file) {
         pts.delete(e.pointerId); pinch = null; box.classList.remove('dragging');
         const rest = [...pts.values()][0]; if (rest) last = rest;
       };
-      window.addEventListener('resize', () => { const fx = x / W, fy = y / H; measure(); x = fx * W; y = fy * H; draw(); });
+      const onResize = () => {
+        if (!box.isConnected) return window.removeEventListener('resize', onResize);
+        const fx = x / W, fy = y / H; measure(); x = fx * W; y = fy * H; draw();
+      };
+      window.addEventListener('resize', onResize);
       resolve({
         toFile: () => new Promise(res => {
-          const s = base * zoom;
+          const k = CROP_W / W, s = base * zoom;
           const c = document.createElement('canvas'); c.width = CROP_W; c.height = CROP_H;
-          c.getContext('2d').drawImage(img, -x / s, -y / s, W / s, H / s, 0, 0, CROP_W, CROP_H);
-          c.toBlob(b => res(new File([b], 'tournoi.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.88);
+          const ctx = c.getContext('2d');
+          if (nw * s < W - 1 || nh * s < H - 1) {
+            // Bords vides : fond flouté fait avec la même image
+            ctx.fillStyle = '#1b2b38'; ctx.fillRect(0, 0, CROP_W, CROP_H);
+            const cs = Math.max(CROP_W / nw, CROP_H / nh) * 1.1;
+            ctx.filter = 'blur(28px) brightness(.8)';
+            ctx.drawImage(img, (CROP_W - nw * cs) / 2, (CROP_H - nh * cs) / 2, nw * cs, nh * cs);
+            ctx.filter = 'none';
+          }
+          ctx.drawImage(img, x * k, y * k, nw * s * k, nh * s * k);
+          c.toBlob(b => res(new File([b], 'banniere.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.88);
         }),
       });
     };
@@ -601,10 +708,10 @@ function makeCropper(box, zoomInput, file) {
 // ---------- Encadré des récompenses ----------
 function rewardsBox(t) {
   const R = rewardsOf(t);
-  const gain = g => `<span class="rw-gain">${g.points ? `<b class="rw-pts">+${g.points} pts</b>` : ''}${g.rubis ? `<b class="rw-rb">${RUBY} +${g.rubis}</b>` : ''}${!g.points && !g.rubis ? '<span class="muted">—</span>' : ''}</span>`;
+  const gain = g => `<span class="rw-gain">${g.points ? `<b class="rw-pts">+${g.points} pts</b>` : ''}${g.rubis ? `<b class="rw-rb">${I.rubis} +${g.rubis}</b>` : ''}${!g.points && !g.rubis ? '<span class="muted">—</span>' : ''}</span>`;
   const items = [
-    ['🏆', 'Vainqueur', R.first], ['🥈', '2e place', R.second], ['🥉', '3e place', R.third],
-    ['🎟️', 'Participation', R.participation], ['⚔️', 'Par match gagné', R.win],
+    [I.trophee, 'Vainqueur', R.first], [I.medal2, '2e place', R.second], [I.medal3, '3e place', R.third],
+    [I.participation, 'Participation', R.participation], [I.match, 'Par match gagné', R.win],
   ].filter(([, , g]) => g.points || g.rubis);
   if (!items.length) return '';
   return `<div class="rewards-box">
@@ -627,6 +734,9 @@ async function pageTournament(id) {
   const res = t.bracket ? resolveBracket(t.bracket) : null;
   const champ = res?.champion ? people.get(res.champion) : null;
   const comp = t.competition_id ? await safe(() => api.getCompetition(t.competition_id)) : null;
+  // Matchs que je peux renseigner : tous pour un admin, seulement le mien (pas encore joué) pour un joueur
+  const canReport = s => s.playable && (me.is_admin || (t.status === 'running' && !s.done && s.players.includes(me.id)));
+  const myMatch = res ? Object.values(res.state).find(s => !me.is_admin && canReport(s)) : null;
 
   app.innerHTML = `
     ${comp ? `<a href="#/competition/${esc(comp.id)}" class="back">← ${esc(comp.name)}</a>` : '<a href="#/tournois" class="back">← Tous les tournois</a>'}
@@ -635,7 +745,7 @@ async function pageTournament(id) {
       <div class="tcard-top"><span class="badge ${t.status}">${STATUS[t.status]}</span><span class="fmt">${FORMAT[t.format]}</span></div>
       <h1>${esc(t.name)}</h1>
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
-      ${t.starts_at ? `<p class="meta">📅 ${esc(fmtDate(t.starts_at))}</p>` : ''}
+      ${t.starts_at ? `<p class="meta">${I.date} ${esc(fmtDate(t.starts_at))}</p>` : ''}
       ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
       ${rewardsBox(t)}
       <div class="actions left">
@@ -653,12 +763,13 @@ async function pageTournament(id) {
       </div>` : ''}
     </div>
 
-    ${champ ? `<div class="card champion">🏆 <div>${avatar(champ, 'av lg')}</div><div><small>Vainqueur</small><strong>${uname(champ)}</strong></div></div>` : ''}
+    ${champ ? `<div class="card champion">${I.trophee} <div>${avatar(champ, 'av lg')}</div><div><small>Vainqueur</small><strong>${uname(champ)}</strong></div></div>` : ''}
 
     ${t.bracket ? `
       <section>
         <h2>Arbre du tournoi</h2>
-        ${me.is_admin && t.status !== 'done' ? '<p class="hint">Clique sur un match pour entrer le score.</p>' : ''}
+        ${me.is_admin && t.status !== 'done' ? '<p class="hint">Clique sur un match pour entrer le score. Les joueurs peuvent aussi déclarer le score de leur propre match.</p>' : ''}
+        ${myMatch ? '<p class="hint mine-hint">C\'est ton tour ! Clique sur ton match (celui qui clignote) pour déclarer le score une fois joué.</p>' : ''}
         ${renderBracket(t.bracket, res, people)}
       </section>` : ''}
 
@@ -694,11 +805,22 @@ async function pageTournament(id) {
   }));
   $('#launch')?.addEventListener('click', () => launchDialog(t, [...people.keys()], reload));
 
-  // Les admins peuvent entrer (ou corriger, même après la fin) un score
-  if (me.is_admin && t.bracket) {
+  // Les admins peuvent entrer (ou corriger, même après la fin) un score ;
+  // les deux joueurs d'un match peuvent déclarer leur résultat (une seule fois)
+  if (t.bracket) {
     app.querySelectorAll('.match.playable').forEach(el => {
+      const s = res.state[el.dataset.mid];
+      if (!canReport(s)) return;
       el.classList.add('editable');
-      el.addEventListener('click', () => scoreDialog(t, res.state[el.dataset.mid], people, reload));
+      if (!me.is_admin) el.classList.add('mine');
+      el.addEventListener('click', () => scoreDialog(t, s, people, reload, !me.is_admin));
+    });
+  }
+  // Tournoi terminé par un joueur : l'admin qui passe distribue les gains
+  if (me.is_admin && t.status === 'done' && t.bracket) {
+    safe(async () => {
+      const paid = await api.ledgerForTournaments([t.id]);
+      if (!paid.length && computeRewards(t, t.bracket).length) { await syncRewards(t, t.bracket); renderNav(); }
     });
   }
 
@@ -725,11 +847,14 @@ function launchDialog(t, ids, reload) {
   }));
 }
 
-function scoreDialog(t, s, people, reload) {
+function scoreDialog(t, s, people, reload, asPlayer = false) {
   const [a, b] = s.players.map(id => people.get(id) || { username: '?' });
   const cur = s.result;
+  const by = cur?.by ? people.get(cur.by) : null;
   const box = openModal(`
-    <h2>Résultat du match</h2>
+    <h2>${asPlayer ? 'Déclarer le résultat' : 'Résultat du match'}</h2>
+    ${asPlayer ? '<p class="small center">Tout le monde verra ce résultat. En cas d\'erreur, seul un admin pourra le corriger.</p>' : ''}
+    ${!asPlayer && by ? `<p class="small center">Déclaré par ${uname(by)}</p>` : ''}
     <div class="score-form">
       <div class="sf-player">${avatar(a, 'av lg')}<strong>${esc(a.username)}</strong><input type="number" min="0" id="s0" value="${cur?.s?.[0] ?? ''}" placeholder="Score"></div>
       <span class="vs">VS</span>
@@ -740,9 +865,19 @@ function scoreDialog(t, s, people, reload) {
       <button class="btn primary" data-w="0">${esc(a.username)} gagne</button>
       <button class="btn primary" data-w="1">${esc(b.username)} gagne</button>
     </div>
-    ${cur ? '<div class="actions center"><button class="btn danger sm" id="clear">Effacer le résultat</button></div>' : ''}`);
+    ${cur && !asPlayer ? '<div class="actions center"><button class="btn danger sm" id="clear">Effacer le résultat</button></div>' : ''}`);
 
   const save = async w => {
+    if (asPlayer) {
+      const s0 = $('#s0', box).value, s1 = $('#s1', box).value;
+      const name = (w === 0 ? a : b).username;
+      if (!confirm(`Confirmer : ${name} gagne ce match ?`)) return;
+      const r = await api.reportScore(t.id, s.id, s.players[w], s0 === '' ? null : Number(s0), s1 === '' ? null : Number(s1));
+      closeModal();
+      toast(r?.champion ? '🏆 Tournoi terminé ! Les récompenses arrivent au prochain passage d\'un admin.' : 'Résultat enregistré, merci !');
+      reload();
+      return;
+    }
     const bracket = structuredClone(t.bracket);
     bracket.results = bracket.results || {};
     if (w == null) delete bracket.results[s.id];
@@ -847,11 +982,11 @@ async function pageProfile(id) {
         ${p.id === state.me.id ? '<button class="btn ghost sm refresh" id="refresh-roles">↻ Actualiser mes rôles</button>' : ''}
         <div class="stats">
           <div><strong>${tours.length}</strong><span>tournoi${tours.length > 1 ? 's' : ''} joué${tours.length > 1 ? 's' : ''}</span></div>
-          <div><strong>${wins.length}</strong><span>victoire${wins.length > 1 ? 's' : ''} 🏆</span></div>
+          <div><strong>${wins.length}</strong><span>victoire${wins.length > 1 ? 's' : ''} ${I.trophee}</span></div>
           <div><strong>${pts(bal(id).points)}</strong><span>points · ${rankOf(id)}</span></div>
           <div><strong>${rubis(bal(id).rubis)}</strong><span>rubis</span></div>
         </div>
-        ${state.me.is_admin ? `<button class="btn ghost sm" id="give">${RUBY} Donner / retirer des rubis ou points</button>` : ''}
+        ${state.me.is_admin ? `<button class="btn ghost sm" id="give">${I.rubis} Donner / retirer des rubis ou points</button>` : ''}
       </div>
     </div>
     <section>
@@ -859,7 +994,7 @@ async function pageProfile(id) {
       <div class="tlist">
         ${tours.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).map(t => `
           <a href="#/tournoi/${esc(t.id)}" class="tline">
-            <span>${t.winner_id === id ? '🏆 ' : ''}${esc(t.name)}</span>
+            <span>${t.winner_id === id ? I.trophee + ' ' : ''}${esc(t.name)}</span>
             <span class="badge ${t.status}">${STATUS[t.status]}</span>
           </a>`).join('') || '<p class="empty">Pas encore de tournoi.</p>'}
       </div>
@@ -888,10 +1023,10 @@ function rankOf(id) {
 
 function giveDialog(p) {
   const box = openModal(`
-    <h2>${RUBY} Récompenser ${uname(p)}</h2>
+    <h2>${I.rubis} Récompenser ${uname(p)}</h2>
     <form class="form" id="gform">
       <div class="row">
-        <label>⭐ Points<input type="number" name="points" value="0" step="1"></label>
+        <label>${I.points} Points<input type="number" name="points" value="0" step="1"></label>
         <label>Rubis<input type="number" name="rubis" value="0" step="1"></label>
       </div>
       <small class="muted">Mets un nombre négatif pour retirer.</small>
@@ -925,7 +1060,7 @@ async function pageLeaderboard() {
             ${avatar(podium[i], 'av lg')}
             <strong>${uname(podium[i])}</strong>
             ${key === 'points' ? pts(podium[i].points) : rubis(podium[i].rubis)}
-            <div class="step">${['🥇', '🥈', '🥉'][i]}</div>
+            <div class="step">${[I.medal1, I.medal2, I.medal3][i]}</div>
           </a>` : '<div></div>').join('')}
       </div>
       <div class="lb-table">
@@ -940,7 +1075,7 @@ async function pageLeaderboard() {
   };
   app.innerHTML = `
     <div class="page-head"><h1>Classement</h1>
-      <div class="seg"><button class="on" data-k="points">⭐ Points</button><button data-k="rubis">${RUBY} Rubis</button></div>
+      <div class="seg"><button class="on" data-k="points">${I.points} Points</button><button data-k="rubis">${I.rubis} Rubis</button></div>
     </div>
     <p class="small">On gagne des points et des rubis en participant aux tournois, en gagnant des matchs et grâce aux events des admins.</p>
     <div id="lb"></div>`;
@@ -960,21 +1095,21 @@ async function pageShop() {
   const money = bal(me.id).rubis;
   app.innerHTML = `
     <div class="page-head"><h1>Boutique</h1><div class="big-money">${rubis(money)}</div></div>
-    <p class="small">Achète une couleur pour ton pseudo avec tes rubis. Elle s'affiche partout sur le site : profil, arbres, classement…</p>
+    <p class="small">Des pseudos animés à acheter avec tes rubis. L'effet s'affiche partout sur le site : profil, arbres, classement…</p>
     <div class="grid shop">
       <div class="card color-card ${!me.name_color ? 'equipped' : ''}">
-        <div class="color-preview"><span class="uname" style="${esc(colorCss(topRole(me)?.color))}">${esc(me.username)}</span></div>
-        <strong>Couleur de mon rôle</strong>
+        <div class="color-preview">${uname({ ...me, name_color: null })}</div>
+        <strong>Sans effet (couleur du rôle)</strong>
         <span class="muted">Gratuit</span>
-        ${!me.name_color ? '<span class="pill-info">Équipée</span>' : '<button class="btn ghost sm" data-equip="">Équiper</button>'}
+        ${!me.name_color ? '<span class="pill-info">Équipé</span>' : '<button class="btn ghost sm" data-equip="">Équiper</button>'}
       </div>
-      ${[...state.colors.values()].map(c => `
+      ${[...state.colors.values()].filter(c => c.effect).map(c => `
       <div class="card color-card ${me.name_color === c.id ? 'equipped' : ''}">
-        <div class="color-preview"><span class="uname" style="${esc(colorCss(c.style))}">${esc(me.username)}</span></div>
+        <div class="color-preview fx-stage">${uname({ ...me, name_color: c.id })}</div>
         <strong>${esc(c.name)}</strong>
         ${rubis(c.price)}
         <button class="btn ghost sm" data-preview="${esc(c.id)}">👀 Voir le rendu</button>
-        ${me.name_color === c.id ? '<span class="pill-info">Équipée</span>'
+        ${me.name_color === c.id ? '<span class="pill-info">Équipé</span>'
           : have.has(c.id) ? `<button class="btn ghost sm" data-equip="${esc(c.id)}">Équiper</button>`
           : `<button class="btn primary sm" data-buy="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Acheter</button>`}
       </div>`).join('')}
@@ -983,7 +1118,7 @@ async function pageShop() {
     if (!confirm(`Acheter « ${c.name} » pour ${c.price} rubis ?`)) return;
     await api.buyColor(c.id);
     state.me.name_color = c.id;
-    closeModal(); toast('Nouvelle couleur équipée !'); await loadBalances(); renderNav(); pageShop();
+    closeModal(); toast('Nouvel effet équipé !'); await loadBalances(); renderNav(); pageShop();
   });
   app.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => buy(state.colors.get(b.dataset.buy))));
   app.querySelectorAll('[data-preview]').forEach(b => b.addEventListener('click', () => {
@@ -991,7 +1126,7 @@ async function pageShop() {
     const fake = { ...me, name_color: c.id };
     const box = openModal(`
       <h2>Aperçu : ${esc(c.name)}</h2>
-      <p class="small">Voici ton pseudo avec cette couleur, à différents endroits du site.</p>
+      <p class="small">Voici ton pseudo avec cet effet, à différents endroits du site.</p>
       <div class="pv">
         <div class="pv-label">Profil</div>
         <div class="pv-profile">${avatar(me, 'av lg')}<div><div class="pv-big">${uname(fake)}</div><div class="roles">${rolesOf(me).slice(0, 2).map(rolePill).join('')}</div></div></div>
@@ -1000,26 +1135,26 @@ async function pageShop() {
         <div class="pv-label">Arbre de tournoi</div>
         <div class="match done pv-match">
           <div class="mslot win">${avatar(me, 'av xs')}<span class="name">${uname(fake)}</span><span class="score">3</span></div>
-          <div class="mslot lose"><img class="av xs" src="${DEFAULT_AVATAR}" alt=""><span class="name">Adversaire</span><span class="score">1</span></div>
+          <div class="mslot lose"><img class="av xs" src="${esc(defAvatar())}" alt=""><span class="name">Adversaire</span><span class="score">1</span></div>
         </div>
       </div>
       <div class="actions">
         <button class="btn ghost" data-close>Fermer</button>
-        ${me.name_color === c.id ? '<span class="pill-info">Déjà équipée</span>'
+        ${me.name_color === c.id ? '<span class="pill-info">Déjà équipé</span>'
           : have.has(c.id) ? '<button class="btn primary" id="pv-equip">Équiper</button>'
           : `<button class="btn primary" id="pv-buy" ${money < c.price ? 'disabled' : ''}>Acheter pour ${c.price} rubis</button>`}
       </div>
       ${!have.has(c.id) && money < c.price ? `<p class="small center">Il te manque ${c.price - money} rubis.</p>` : ''}`);
     $('#pv-buy', box)?.addEventListener('click', () => buy(c));
     $('#pv-equip', box)?.addEventListener('click', () => safe(async () => {
-      await api.equipColor(c.id); state.me.name_color = c.id; closeModal(); toast('Couleur changée'); renderNav(); pageShop();
+      await api.equipColor(c.id); state.me.name_color = c.id; closeModal(); toast('Effet changé'); renderNav(); pageShop();
     }));
   }));
   app.querySelectorAll('[data-equip]').forEach(b => b.addEventListener('click', () => safe(async () => {
     const id = b.dataset.equip || null;
     await api.equipColor(id);
     state.me.name_color = id;
-    toast('Couleur changée'); renderNav(); pageShop();
+    toast('Effet changé'); renderNav(); pageShop();
   })));
 }
 
@@ -1085,13 +1220,164 @@ async function pageRoles() {
   })));
 }
 
+// ---------- Paramètres (admins) : fond d'écran, icônes, galerie ----------
+// Réduit une image avant l'envoi (garde la transparence des PNG ; les GIF animés sont envoyés tels quels)
+async function shrinkImage(file, max, type = 'image/png') {
+  if (file.type === 'image/gif' || file.type === 'image/svg+xml') return file;
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  if (k === 1 && file.type === type) return file;
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, type, 0.86));
+  return new File([blob], type === 'image/png' ? 'image.png' : 'image.jpg', { type });
+}
+const ICON_MAX = { ile: 1400, logo: 512, avatar: 256 };
+
+async function pageSettings(tab = 'fond') {
+  app.innerHTML = `
+    <div class="page-head"><h1>Paramètres</h1></div>
+    <p class="small">Personnalise l'apparence du site. Les changements sont visibles par tout le monde.</p>
+    <div class="tabs">
+      <button data-tab="fond">Fond d'écran</button>
+      <button data-tab="icones">Icônes</button>
+      <button data-tab="galerie">Mes images</button>
+    </div>
+    <div id="set-body"></div>`;
+  const body = $('#set-body');
+  const pick = (accept = 'image/*', multiple = false) => new Promise(res => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept; inp.multiple = multiple;
+    inp.onchange = () => res([...inp.files]); inp.click();
+  });
+  const tooBig = f => { if (f.size > 20 * 1024 * 1024) { toast(`${f.name} est trop lourde (20 Mo maximum)`, 'err'); return true; } return false; };
+  const saveTheme = async patch => { state.theme = { ...state.theme, ...patch }; applyTheme(); await api.saveSetting('theme', state.theme); };
+  const saveIcon = async (k, url) => {
+    const icons = { ...state.icons }; if (url) icons[k] = url; else delete icons[k];
+    state.icons = icons; await api.saveSetting('icons', icons); applyTheme(); renderNav();
+  };
+
+  const showBg = () => {
+    const t = state.theme;
+    body.innerHTML = `
+      <section class="card set-card">
+        <h2>Fond d'écran du site</h2>
+        <div class="bg-preview ${t.fit === 'tile' ? 'tile' : ''}" style="--pv:${t.background_url ? `url('${esc(t.background_url)}')` : 'none'};--veil:${(t.veil ?? 30) / 100}">
+          ${t.background_url ? '<div class="bg-mini card">Aperçu d\'une carte</div>' : '<span>Aucun fond : le ciel par défaut est utilisé</span>'}
+        </div>
+        <div class="row wrap">
+          <button class="btn primary sm" id="bg-pick">${t.background_url ? 'Changer l\'image' : 'Choisir une image'}</button>
+          ${t.background_url ? '<button class="btn ghost sm" id="bg-del">Retirer le fond</button>' : ''}
+        </div>
+        ${t.background_url ? `
+        <label class="set-line">Voile blanc (lisibilité) <b id="veil-v">${t.veil ?? 30}%</b>
+          <input type="range" id="veil" min="0" max="85" step="5" value="${t.veil ?? 30}"></label>
+        <div class="set-line">Affichage
+          <label class="radio"><input type="radio" name="fit" value="cover" ${t.fit !== 'tile' ? 'checked' : ''}> Remplir l'écran</label>
+          <label class="radio"><input type="radio" name="fit" value="tile" ${t.fit === 'tile' ? 'checked' : ''}> Répéter en mosaïque (motifs)</label>
+        </div>` : ''}
+        <small class="muted">Conseil : une image d'au moins 1920 × 1080. Elle reste fixe pendant qu'on fait défiler la page.</small>
+      </section>`;
+    $('#bg-pick').onclick = async () => {
+      const [f] = await pick('image/png,image/jpeg,image/webp,image/gif'); if (!f || tooBig(f)) return;
+      await safe(async () => {
+        toast('Envoi du fond d\'écran…');
+        const url = await api.uploadImage(await shrinkImage(f, 2560, 'image/jpeg'), 'fonds');
+        await saveTheme({ background_url: url }); toast('Fond d\'écran enregistré !'); showBg();
+      });
+    };
+    $('#bg-del')?.addEventListener('click', () => safe(async () => { await saveTheme({ background_url: null }); showBg(); }));
+    const veil = $('#veil');
+    if (veil) {
+      veil.oninput = () => { $('#veil-v').textContent = veil.value + '%'; document.body.style.setProperty('--bg-veil', String(veil.value / 100)); $('.bg-preview').style.setProperty('--veil', veil.value / 100); };
+      veil.onchange = () => safe(() => saveTheme({ veil: Number(veil.value) }));
+    }
+    body.querySelectorAll('input[name=fit]').forEach(r => r.onchange = () => safe(async () => { await saveTheme({ fit: r.value }); showBg(); }));
+  };
+
+  const showIcons = () => {
+    body.innerHTML = `
+      <p class="small">Remplace chaque icône du site par ta propre image (PNG avec fond transparent conseillé). « Par défaut » remet l'icône d'origine.</p>
+      <div class="grid icon-grid">
+        ${ICON_SLOTS.map(([k, label]) => `
+          <div class="card icon-card ${state.icons[k] ? 'custom' : ''}">
+            <div class="icon-show ${k === 'ile' ? 'wide' : ''}">${k === 'avatar' ? `<img class="av lg" src="${esc(defAvatar())}" alt="">` : icon(k)}</div>
+            <strong>${esc(label)}</strong>
+            <div class="row">
+              <button class="btn ghost sm" data-set="${k}">Changer</button>
+              ${state.icons[k] ? `<button class="btn ghost sm" data-reset="${k}">Par défaut</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>`;
+    body.querySelectorAll('[data-set]').forEach(b => b.onclick = async () => {
+      const k = b.dataset.set;
+      const [f] = await pick('image/png,image/jpeg,image/webp,image/gif,image/svg+xml'); if (!f || tooBig(f)) return;
+      await safe(async () => {
+        const url = await api.uploadImage(await shrinkImage(f, ICON_MAX[k] || 160), 'icones');
+        await saveIcon(k, url); toast('Icône changée'); showIcons();
+      });
+    });
+    body.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => safe(async () => { await saveIcon(b.dataset.reset, null); showIcons(); }));
+  };
+
+  const showGallery = async () => {
+    body.innerHTML = '<div class="loading">Chargement…</div>';
+    const list = await safe(() => api.listGallery()) || [];
+    const targets = `<option value="">Utiliser pour…</option><option value="__bg">Fond d'écran</option>${ICON_SLOTS.map(([k, l]) => `<option value="${k}">Icône : ${esc(l)}</option>`).join('')}`;
+    body.innerHTML = `
+      <div class="page-head"><p class="small">Range ici toutes tes images personnalisées, puis utilise-les comme fond ou comme icône.</p>
+        <button class="btn primary sm" id="g-add">+ Ajouter des images</button></div>
+      <div class="grid gallery">
+        ${list.map(g => `
+          <div class="card g-item">
+            <div class="g-img" style="background-image:url('${esc(g.url)}')"></div>
+            <select data-use="${esc(g.url)}">${targets}</select>
+            <div class="row">
+              <button class="btn ghost sm" data-copy="${esc(g.url)}">Copier le lien</button>
+              <button class="x" data-del="${esc(g.path)}" title="Supprimer">✕</button>
+            </div>
+          </div>`).join('') || '<p class="empty">Aucune image pour l\'instant.</p>'}
+      </div>`;
+    $('#g-add').onclick = async () => {
+      const files = (await pick('image/png,image/jpeg,image/webp,image/gif,image/svg+xml', true)).filter(f => !tooBig(f));
+      if (!files.length) return;
+      await safe(async () => {
+        toast(`Envoi de ${files.length} image${files.length > 1 ? 's' : ''}…`);
+        for (const f of files) await api.uploadImage(await shrinkImage(f, 2560, f.type === 'image/png' ? 'image/png' : 'image/jpeg'), 'galerie');
+        toast('Images ajoutées'); showGallery();
+      });
+    };
+    body.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => navigator.clipboard?.writeText(b.dataset.copy).then(() => toast('Lien copié')));
+    body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => safe(async () => {
+      if (!confirm('Supprimer cette image ? Si elle est utilisée comme fond ou icône, elle disparaîtra du site.')) return;
+      await api.deleteImage(b.dataset.del); showGallery();
+    }));
+    body.querySelectorAll('[data-use]').forEach(sel => sel.onchange = () => safe(async () => {
+      const v = sel.value; if (!v) return;
+      if (v === '__bg') { await saveTheme({ background_url: sel.dataset.use }); toast('Fond d\'écran changé'); }
+      else { await saveIcon(v, sel.dataset.use); toast('Icône changée'); }
+      sel.value = '';
+    }));
+  };
+
+  const show = k => {
+    app.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
+    ({ fond: showBg, icones: showIcons, galerie: showGallery })[k]();
+  };
+  app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+  show(tab);
+}
+
 // =====================================================================
 //  Démarrage
 // =====================================================================
 (async () => {
   if (DEMO) document.body.classList.add('demo');
-  state.me = await safe(() => api.init());
+  const [me] = await Promise.all([safe(() => api.init()), loadTheme()]);
+  state.me = me;
   if (state.me?.in_guild) await Promise.all([loadRoles(), loadColors(), loadBalances()]);
+  if (state.me?.is_admin) settlePending();
   window.addEventListener('hashchange', route);
   route();
 })();

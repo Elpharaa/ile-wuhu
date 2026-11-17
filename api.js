@@ -3,6 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
+import { resolveBracket } from './bracket.js';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -79,12 +80,28 @@ async function supabaseApi() {
     ledgerForTournaments: async ids => ids.length ? ok(await sb.from('wuhu_ledger').select('user_id, points, rubis, tournament_id').in('tournament_id', ids)) : [],
 
     // ----- Images -----
-    async uploadImage(file) {
+    async uploadImage(file, folder = 'tournois') {
       const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const path = `tournois/${crypto.randomUUID()}.${ext}`;
+      const path = `${folder}/${crypto.randomUUID()}.${ext}`;
       ok(await sb.storage.from('wuhu').upload(path, file, { contentType: file.type, upsert: false }));
       return sb.storage.from('wuhu').getPublicUrl(path).data.publicUrl;
     },
+    async listGallery() {
+      const files = ok(await sb.storage.from('wuhu').list('galerie', { limit: 500, sortBy: { column: 'created_at', order: 'desc' } }));
+      return files.filter(f => f.id).map(f => ({ name: f.name, path: 'galerie/' + f.name, url: sb.storage.from('wuhu').getPublicUrl('galerie/' + f.name).data.publicUrl }));
+    },
+    deleteImage: async path => ok(await sb.storage.from('wuhu').remove([path])),
+
+    // ----- Thème du site (fond d'écran, icônes) : lisible même sans être connecté -----
+    async getTheme() {
+      const rows = ok(await sb.from('wuhu_settings').select('key, value').in('key', ['theme', 'icons']));
+      return Object.fromEntries(rows.map(r => [r.key, r.value]));
+    },
+    saveSetting: async (key, value) => ok(await sb.from('wuhu_settings').upsert({ key, value })),
+
+    // ----- Score déclaré par un joueur du match -----
+    reportScore: async (tid, mid, winner, s0, s1) =>
+      ok(await sb.rpc('wuhu_report_score', { p_tid: tid, p_mid: mid, p_winner: winner, p_s0: s0, p_s1: s1 })),
 
     // ----- Rubis, points, couleurs -----
     balances: async () => ok(await sb.from('wuhu_balances').select('*')),
@@ -125,25 +142,23 @@ function demoApi() {
   ];
   const members = names.map((n, i) => ({
     id: 'u' + i, username: n, avatar_url: `https://cdn.discordapp.com/embed/avatars/${i % 6}.png`,
-    roles: roleSets[i], in_guild: true, is_admin: i === 0, name_color: i === 1 ? 'couchant' : i === 2 ? 'orchidee' : null,
+    roles: roleSets[i], in_guild: true, is_admin: i === 0, name_color: i === 1 ? 'fx-feu' : i === 2 ? 'fx-musique' : null,
   }));
   const colors = [
-    ['lagon', 'Lagon', '#1aa3dc', 20], ['palmier', 'Palmier', '#2fb36b', 20], ['soleil', 'Soleil', '#f3a530', 20],
-    ['corail', 'Corail', '#ff6f61', 20], ['rubis', 'Rubis', '#d6204e', 40], ['volcan', 'Volcan', '#b5341b', 40],
-    ['orchidee', 'Orchidée', '#a259e6', 40], ['nuit', 'Nuit tropicale', '#2b3a8c', 40],
-    ['couchant', 'Coucher de soleil', 'linear-gradient(90deg,#ff7e5f,#feb47b)', 80],
-    ['ocean', 'Océan profond', 'linear-gradient(90deg,#00c6ff,#0072ff)', 80],
-    ['tropique', 'Tropiques', 'linear-gradient(90deg,#11998e,#38ef7d)', 80],
-    ['arcenciel', 'Arc-en-ciel', 'linear-gradient(90deg,#ff4d4d,#ffb84d,#ffe94d,#4dff88,#4dc3ff,#b84dff)', 150],
-  ].map(([id, name, style, price], position) => ({ id, name, style, price, position }));
-  let owned = [['u1', 'couchant'], ['u2', 'orchidee']];
+    ['vague', 'Vague de Wuhu', 40], ['led', 'Panneau LED', 60], ['glace', 'Glace', 80], ['feu', 'En feu', 80],
+    ['musique', 'Mélodie', 100], ['coeurs', 'Coup de cœur', 100], ['neon', 'Néon', 120], ['eclair', 'Électrique', 140],
+    ['glitch', 'Glitch', 160], ['fantome', 'Fantôme', 180], ['galaxie', 'Galaxie', 220], ['or', 'Or scintillant', 300],
+  ].map(([effect, name, price], position) => ({ id: 'fx-' + effect, name, style: null, effect, price, position }));
+  let owned = [['u1', 'fx-feu'], ['u2', 'fx-musique'], ['u0', 'fx-led']];
   let ledger = [];
+  let gallery = [];
+  const settings = {};
   let lid = 1;
   const addL = (user_id, rubis, points, reason, tournament_id = null) =>
     ledger.push({ id: lid++, user_id, rubis, points, reason, tournament_id, created_at: new Date(Date.now() - lid * 3600e3).toISOString() });
   members.forEach((m, i) => addL(m.id, 10 + ((i * 37) % 90), 15 + ((i * 53) % 140), 'Points de départ (démo)'));
   addL('u0', 100, 0, 'Cadeau de bienvenue');
-  const me = members[0];
+  const me = members[Number(new URLSearchParams(location.search).get('as')) || 0];
   const db = {
     tournaments: [
       { id: 't1', image_url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"><rect width="400" height="200" fill="%2334bdf0"/><circle cx="200" cy="100" r="50" fill="%23d7f542"/></svg>', name: 'Coupe de tennis de Wuhu', game: 'Wii Sports Resort – Tennis', description: 'Matchs en 1 set. Rendez-vous sur le vocal !', format: 'single', status: 'open', max_players: 16, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-15' },
@@ -199,8 +214,21 @@ function demoApi() {
       return clone(db.tournaments.filter(t => t.competition_id === cid)).map(t => ({ ...t, participants: [{ count: db.participants.filter(p => p.tournament_id === t.id).length }] }));
     },
     async ledgerForTournaments(ids) { return clone(ledger.filter(l => ids.includes(l.tournament_id))); },
-    async uploadImage(file) {
-      return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
+    async uploadImage(file, folder) {
+      const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
+      if (folder === 'galerie') gallery.unshift({ name: file.name, path: 'galerie/' + file.name + Date.now(), url });
+      return url;
+    },
+    async listGallery() { return clone(gallery); },
+    async deleteImage(path) { gallery = gallery.filter(g => g.path !== path); },
+    async getTheme() { return clone(settings); },
+    async saveSetting(key, value) { settings[key] = clone(value); },
+    async reportScore(tid, mid, w, s0, s1) {
+      const t = db.tournaments.find(x => x.id === tid);
+      t.bracket.results[mid] = { w, s: s0 == null && s1 == null ? null : [s0 || 0, s1 || 0], by: me.id };
+      const r = resolveBracket(t.bracket);
+      t.status = r.champion ? 'done' : 'running'; t.winner_id = r.champion ?? null;
+      notify(); return { champion: r.champion ?? null };
     },
     async balances() {
       return members.map(m => ({
