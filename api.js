@@ -15,7 +15,7 @@ async function supabaseApi() {
     auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true },
   });
   const ok = ({ data, error }) => { if (error) throw error; return data; };
-  const PROFILE_COLS = 'id, username, avatar_url, roles, in_guild, is_admin';
+  const PROFILE_COLS = 'id, username, avatar_url, roles, in_guild, is_admin, name_color';
 
   return {
     async init() {
@@ -69,6 +69,25 @@ async function supabaseApi() {
       return parts.map(p => p.tournament).filter(Boolean);
     },
 
+    // ----- Images -----
+    async uploadImage(file) {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const path = `tournois/${crypto.randomUUID()}.${ext}`;
+      ok(await sb.storage.from('wuhu').upload(path, file, { contentType: file.type, upsert: false }));
+      return sb.storage.from('wuhu').getPublicUrl(path).data.publicUrl;
+    },
+
+    // ----- Rubis, points, couleurs -----
+    balances: async () => ok(await sb.from('wuhu_balances').select('*')),
+    ledger: async (uid, limit = 30) =>
+      ok(await sb.from('wuhu_ledger').select('*').eq('user_id', uid).order('created_at', { ascending: false }).limit(limit)),
+    addLedger: async rows => ok(await sb.from('wuhu_ledger').insert(rows)),
+    clearTournamentRewards: async tid => ok(await sb.from('wuhu_ledger').delete().eq('tournament_id', tid)),
+    listColors: async () => ok(await sb.from('wuhu_colors').select('*').order('position')),
+    listOwned: async uid => (ok(await sb.from('wuhu_owned_colors').select('color_id').eq('user_id', uid))).map(r => r.color_id),
+    buyColor: async id => ok(await sb.rpc('wuhu_buy_color', { p_color: id })),
+    equipColor: async id => ok(await sb.rpc('wuhu_equip_color', { p_color: id })),
+
     subscribe(tid, cb) {
       const ch = sb.channel('t-' + tid)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'wuhu_tournaments', filter: `id=eq.${tid}` }, cb)
@@ -97,12 +116,28 @@ function demoApi() {
   ];
   const members = names.map((n, i) => ({
     id: 'u' + i, username: n, avatar_url: `https://cdn.discordapp.com/embed/avatars/${i % 6}.png`,
-    roles: roleSets[i], in_guild: true, is_admin: i === 0,
+    roles: roleSets[i], in_guild: true, is_admin: i === 0, name_color: i === 1 ? 'couchant' : i === 2 ? 'orchidee' : null,
   }));
+  const colors = [
+    ['lagon', 'Lagon', '#1aa3dc', 20], ['palmier', 'Palmier', '#2fb36b', 20], ['soleil', 'Soleil', '#f3a530', 20],
+    ['corail', 'Corail', '#ff6f61', 20], ['rubis', 'Rubis', '#d6204e', 40], ['volcan', 'Volcan', '#b5341b', 40],
+    ['orchidee', 'Orchidée', '#a259e6', 40], ['nuit', 'Nuit tropicale', '#2b3a8c', 40],
+    ['couchant', 'Coucher de soleil', 'linear-gradient(90deg,#ff7e5f,#feb47b)', 80],
+    ['ocean', 'Océan profond', 'linear-gradient(90deg,#00c6ff,#0072ff)', 80],
+    ['tropique', 'Tropiques', 'linear-gradient(90deg,#11998e,#38ef7d)', 80],
+    ['arcenciel', 'Arc-en-ciel', 'linear-gradient(90deg,#ff4d4d,#ffb84d,#ffe94d,#4dff88,#4dc3ff,#b84dff)', 150],
+  ].map(([id, name, style, price], position) => ({ id, name, style, price, position }));
+  let owned = [['u1', 'couchant'], ['u2', 'orchidee']];
+  let ledger = [];
+  let lid = 1;
+  const addL = (user_id, rubis, points, reason, tournament_id = null) =>
+    ledger.push({ id: lid++, user_id, rubis, points, reason, tournament_id, created_at: new Date(Date.now() - lid * 3600e3).toISOString() });
+  members.forEach((m, i) => addL(m.id, 10 + ((i * 37) % 90), 15 + ((i * 53) % 140), 'Points de départ (démo)'));
+  addL('u0', 100, 0, 'Cadeau de bienvenue');
   const me = members[0];
   const db = {
     tournaments: [
-      { id: 't1', name: 'Coupe de tennis de Wuhu', game: 'Wii Sports Resort – Tennis', description: 'Matchs en 1 set. Rendez-vous sur le vocal !', format: 'single', status: 'open', max_players: 16, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-15' },
+      { id: 't1', image_url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"><rect width="400" height="200" fill="%2334bdf0"/><circle cx="200" cy="100" r="50" fill="%23d7f542"/></svg>', name: 'Coupe de tennis de Wuhu', game: 'Wii Sports Resort – Tennis', description: 'Matchs en 1 set. Rendez-vous sur le vocal !', format: 'single', status: 'open', max_players: 16, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-15' },
       { id: 't2', name: 'Tournoi de sabre', game: 'Wii Sports Resort – Duel', description: 'Double élimination : tout le monde a une seconde chance.', format: 'double', status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-10' },
     ],
     participants: [],
@@ -141,6 +176,32 @@ function demoApi() {
     async userStats(id) {
       return db.participants.filter(p => p.user_id === id).map(p => clone(db.tournaments.find(t => t.id === p.tournament_id))).filter(Boolean);
     },
+    async uploadImage(file) {
+      return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
+    },
+    async balances() {
+      return members.map(m => ({
+        user_id: m.id,
+        rubis: ledger.filter(l => l.user_id === m.id).reduce((a, l) => a + l.rubis, 0),
+        points: ledger.filter(l => l.user_id === m.id).reduce((a, l) => a + l.points, 0),
+      }));
+    },
+    async ledger(uid, limit = 30) {
+      return clone(ledger.filter(l => l.user_id === uid).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit));
+    },
+    async addLedger(rows) { rows.forEach(r => addL(r.user_id, r.rubis || 0, r.points || 0, r.reason, r.tournament_id || null)); },
+    async clearTournamentRewards(tid) { ledger = ledger.filter(l => l.tournament_id !== tid); },
+    async listColors() { return clone(colors); },
+    async listOwned(uid) { return owned.filter(o => o[0] === uid).map(o => o[1]); },
+    async buyColor(id) {
+      const c = colors.find(x => x.id === id);
+      const bal = ledger.filter(l => l.user_id === me.id).reduce((a, l) => a + l.rubis, 0);
+      if (owned.some(o => o[0] === me.id && o[1] === id)) throw new Error('Tu as déjà cette couleur');
+      if (bal < c.price) throw new Error('Pas assez de rubis');
+      addL(me.id, -c.price, 0, 'Achat : couleur ' + id);
+      owned.push([me.id, id]); me.name_color = id;
+    },
+    async equipColor(id) { me.name_color = id; },
     subscribe(tid, cb) { subs.add(cb); return () => subs.delete(cb); },
   };
 }

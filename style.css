@@ -242,3 +242,64 @@ body.demo .demo-banner { display: block; }
 .rr-info { margin-top: 6px; }
 .role-row .x { border: 0; background: none; color: var(--danger); cursor: pointer; font-size: 1rem; }
 .refresh { margin-top: 12px; }
+
+/* ---------- Rubis, points, pseudos ---------- */
+.ruby { width: 1.05em; height: 1.05em; vertical-align: -0.17em; flex: none; }
+.money { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; white-space: nowrap; }
+.money b { font-weight: 800; }
+.money.pts b { color: #c78a00; }
+.money:not(.pts) b { color: #c2184b; }
+.neg .money b { color: var(--danger); }
+.uname { font-weight: 800; }
+.wallet { background: #fff0f4; border: 2px solid #ffd0dc; padding: 5px 12px; border-radius: 999px; }
+.hero-money { display: flex; gap: 14px; justify-content: center; font-size: 1.2rem; margin-bottom: 10px; }
+.member-money { display: flex; gap: 10px; font-size: .85rem; }
+.reward-line { margin-top: 10px; font-size: .9rem; color: var(--muted); font-weight: 700; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.gain { display: flex; gap: 10px; }
+.stats { flex-wrap: wrap; justify-content: center; }
+.stats strong .money { font-size: 1.3rem; }
+
+/* ---------- Images de tournoi ---------- */
+.tcard.has-img { padding-top: 0; }
+.tcard-img { height: 130px; margin: 0 -20px 14px; background: center/cover no-repeat var(--sky2); }
+.thead.with-img { padding-top: 0; overflow: hidden; }
+.thead-img { height: 220px; margin: 0 -20px 16px; background: center/cover no-repeat var(--sky2); }
+.img-field { display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: .9rem; }
+.img-preview { height: 140px; border-radius: 14px; border: 3px dashed var(--line); background: center/cover no-repeat var(--sky2);
+  display: grid; place-items: center; color: var(--muted); font-weight: 700; }
+.file-btn { cursor: pointer; }
+.rewards { background: var(--sky2); border-radius: 14px; padding: 10px 14px; }
+.rewards summary { cursor: pointer; font-weight: 800; }
+.rewards table { width: 100%; margin-top: 8px; border-collapse: collapse; }
+.rewards th { font-size: .8rem; color: var(--muted); text-align: left; }
+.rewards td { padding: 3px 4px; font-weight: 700; font-size: .9rem; }
+.rewards td input { width: 80px; padding: 6px 8px !important; }
+
+/* ---------- Classement ---------- */
+.seg { display: inline-flex; background: #fff; border-radius: 999px; padding: 4px; box-shadow: var(--shadow); }
+.seg button { font: inherit; font-weight: 800; border: 0; background: none; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.seg button.on { background: var(--sea); color: #fff; }
+.podium { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: end; max-width: 620px; margin: 20px auto; }
+.podium-step { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.podium-step .step { width: 100%; border-radius: 18px 18px 6px 6px; display: grid; place-items: center; font-size: 2rem; box-shadow: var(--shadow); }
+.p1 .step { height: 120px; background: linear-gradient(180deg, #ffe680, #ffc93c); }
+.p2 .step { height: 90px; background: linear-gradient(180deg, #eef3f7, #c9d6e0); }
+.p3 .step { height: 70px; background: linear-gradient(180deg, #ffd8b0, #e8a46a); }
+.lb-table { display: flex; flex-direction: column; gap: 8px; }
+.lb-row { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 16px; padding: 10px 16px; box-shadow: var(--shadow); }
+.lb-row.me-row { outline: 3px solid var(--sea); }
+.lb-rank { width: 28px; font-weight: 800; color: var(--muted); text-align: center; }
+.lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Boutique ---------- */
+.big-money { font-size: 1.4rem; background: #fff; padding: 8px 18px; border-radius: 999px; box-shadow: var(--shadow); }
+.shop { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.color-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.color-card.equipped { border-color: var(--leaf); }
+.color-preview { width: 100%; background: var(--sky2); border-radius: 14px; padding: 18px 8px; font-size: 1.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+@media (max-width: 680px) {
+  .wallet { padding: 4px 8px; }
+  .lb-row .money.pts { display: none; }
+}
+.form .file-btn { flex: none; flex-direction: row; display: inline-flex; font-size: .88rem; }

@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { generateBracket, resolveBracket, roundTitle } from './bracket.js';
 
 const app = document.getElementById('app');
-const state = { me: null, roles: new Map() };
+const state = { me: null, roles: new Map(), colors: new Map(), balances: new Map() };
 let unsubscribe = null;
 
 // ---------- Petits outils ----------
@@ -23,6 +23,82 @@ async function loadRoles() {
   const list = await safe(() => api.listRoles()) || [];
   state.roles = new Map(list.map(r => [r.id, r]));
 }
+// ---------- Rubis, points, couleurs de pseudo ----------
+const RUBY = '<svg class="ruby" viewBox="0 0 24 24" aria-label="rubis"><path d="M6.5 3h11L22 9 12 21 2 9z" fill="#e0245e"/><path d="M2 9h20M6.5 3 9 9l3 12 3-12 2.5-6M9 9l3-6 3 6" fill="none" stroke="#ffb3c6" stroke-width="1.1" stroke-linejoin="round"/></svg>';
+const rubis = n => `<span class="money">${RUBY}<b>${Number(n || 0).toLocaleString('fr-FR')}</b></span>`;
+const pts = n => `<span class="money pts">⭐<b>${Number(n || 0).toLocaleString('fr-FR')}</b></span>`;
+const colorCss = style => !style ? '' : style.startsWith('linear')
+  ? `background:${style};-webkit-background-clip:text;background-clip:text;color:transparent`
+  : `color:${style}`;
+function nameStyle(p) {
+  const c = p?.name_color && state.colors.get(p.name_color);
+  if (c) return colorCss(c.style);
+  return colorCss(topRole(p)?.color);
+}
+const uname = p => `<span class="uname" style="${esc(nameStyle(p))}">${esc(p?.username)}</span>`;
+const bal = uid => state.balances.get(uid) || { rubis: 0, points: 0 };
+async function loadColors() {
+  const list = await safe(() => api.listColors()) || [];
+  state.colors = new Map(list.map(c => [c.id, c]));
+}
+async function loadBalances() {
+  const list = await safe(() => api.balances()) || [];
+  state.balances = new Map(list.map(b => [b.user_id, b]));
+}
+
+// ---------- Récompenses de tournoi ----------
+const DEFAULT_REWARDS = {
+  participation: { points: 10, rubis: 5 },
+  win: { points: 5, rubis: 0 },
+  first: { points: 50, rubis: 30 },
+  second: { points: 25, rubis: 15 },
+  third: { points: 10, rubis: 5 },
+};
+const rewardsOf = t => {
+  const r = structuredClone(DEFAULT_REWARDS);
+  for (const k of Object.keys(r)) Object.assign(r[k], t?.rewards?.[k] || {});
+  return r;
+};
+// Calcule les gains de chacun à la fin d'un tournoi
+function computeRewards(t, bracket) {
+  const R = rewardsOf(t);
+  const res = resolveBracket(bracket);
+  if (!res.champion) return [];
+  const st = res.state;
+  const players = new Set();
+  bracket.matches.forEach(m => m.slots.forEach(x => x.p && players.add(x.p)));
+  const rows = [];
+  const add = (uid, g, reason) => {
+    if (uid && (g.points || g.rubis)) rows.push({ user_id: uid, points: g.points || 0, rubis: g.rubis || 0, reason: `${reason} – ${t.name}`, tournament_id: t.id });
+  };
+  players.forEach(u => add(u, R.participation, 'Participation'));
+  const wins = new Map();
+  Object.values(st).forEach(x => { if (x.playable && x.done) wins.set(x.winner, (wins.get(x.winner) || 0) + 1); });
+  wins.forEach((n, u) => add(u, { points: R.win.points * n, rubis: R.win.rubis * n }, `${n} match${n > 1 ? 's' : ''} gagné${n > 1 ? 's' : ''}`));
+  let second = null, thirds = [];
+  if (bracket.format === 'double') {
+    second = st.GF2 && !st.GF2.dead && st.GF2.done ? st.GF2.loser : st.GF1.loser;
+    const lastL = bracket.matches.filter(m => m.b === 'L').pop();
+    if (lastL && st[lastL.id].playable) thirds = [st[lastL.id].loser];
+    else if (!lastL && st.GF1) thirds = [];
+  } else {
+    const k = bracket.rounds.W;
+    second = st[`W${k}-0`].loser;
+    if (k >= 2) thirds = bracket.matches.filter(m => m.b === 'W' && m.r === k - 1).map(m => st[m.id].playable ? st[m.id].loser : null);
+  }
+  add(res.champion, R.first, '🏆 Champion');
+  add(second, R.second, '🥈 2e place');
+  thirds.filter(Boolean).forEach(u => add(u, R.third, '🥉 3e place'));
+  return rows;
+}
+// Remet à jour les gains d'un tournoi (efface les anciens, ajoute les nouveaux s'il est fini)
+async function syncRewards(t, bracket) {
+  await api.clearTournamentRewards(t.id);
+  const rows = bracket ? computeRewards(t, bracket) : [];
+  if (rows.length) await api.addLedger(rows);
+  await loadBalances();
+}
+
 const FORMAT = { single: 'Élimination directe', double: 'Double élimination' };
 const STATUS = { open: 'Inscriptions ouvertes', running: 'En cours', done: 'Terminé' };
 const fmtDate = d => d ? new Date(d).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
@@ -54,10 +130,11 @@ function renderNav() {
   const hash = location.hash || '#/';
   const link = (h, label) => `<a href="${h}" class="${hash === h || (h !== '#/' && hash.startsWith(h.replace(/s$/, ''))) ? 'active' : ''}">${label}</a>`;
   $('#nav').innerHTML = me?.in_guild
-    ? link('#/', 'Accueil') + link('#/tournois', 'Tournois') + link('#/membres', 'Membres') + (me.is_admin ? link('#/roles', 'Rôles') : '')
+    ? link('#/', 'Accueil') + link('#/tournois', 'Tournois') + link('#/classement', 'Classement') + link('#/membres', 'Membres') + link('#/boutique', 'Boutique') + (me.is_admin ? link('#/roles', 'Rôles') : '')
     : '';
   $('#user').innerHTML = me
-    ? `<a class="me" href="#/profil/${esc(me.id)}">${avatar(me, 'av sm')}<span>${esc(me.username)}</span></a>
+    ? `${me.in_guild ? `<a href="#/boutique" class="wallet">${rubis(bal(me.id).rubis)}</a>` : ''}
+       <a class="me" href="#/profil/${esc(me.id)}">${avatar(me, 'av sm')}${uname(me)}</a>
        <button class="btn ghost sm" id="logout">Déconnexion</button>`
     : `<button class="btn discord sm" id="login">Connexion</button>`;
   $('#logout')?.addEventListener('click', () => api.signOut().then(() => { state.me = null; location.hash = '#/'; renderNav(); route(); }));
@@ -81,6 +158,8 @@ async function route() {
     case 'membres': return pageMembers();
     case 'profil': return pageProfile(parts[1] || state.me.id);
     case 'roles': return state.me.is_admin ? pageRoles() : pageHome();
+    case 'classement': return pageLeaderboard();
+    case 'boutique': return pageShop();
     default: return pageHome();
   }
 }
@@ -139,7 +218,8 @@ function pageNotMember() {
 function tournamentCard(t) {
   const n = t.participants?.[0]?.count ?? 0;
   return `
-    <a class="card tcard status-${t.status}" href="#/tournoi/${esc(t.id)}">
+    <a class="card tcard status-${t.status} ${t.image_url ? 'has-img' : ''}" href="#/tournoi/${esc(t.id)}">
+      ${t.image_url ? `<div class="tcard-img" style="background-image:url('${esc(t.image_url)}')"></div>` : ''}
       <div class="tcard-top"><span class="badge ${t.status}">${STATUS[t.status]}</span><span class="fmt">${FORMAT[t.format]}</span></div>
       <h3>${esc(t.name)}</h3>
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
@@ -156,7 +236,8 @@ async function pageHome() {
   app.innerHTML = `
     <section class="hero small-hero">
       ${ISLAND_SVG}
-      <h1>Salut ${esc(me.username)} !</h1>
+      <h1>Salut ${uname(me)} !</h1>
+      <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
       <div class="roles center">${rolesOf(me).map(rolePill).join('')}</div>
     </section>
     <section>
@@ -203,6 +284,26 @@ function tournamentForm(t = null) {
         <label>Places max<input name="max_players" type="number" min="2" max="128" value="${esc(t?.max_players)}" placeholder="Illimité"></label>
       </div>
       <label>Date et heure (optionnel)<input name="starts_at" type="datetime-local" value="${toLocal(t?.starts_at)}"></label>
+      <div class="img-field">
+        <span>Image du tournoi</span>
+        <div class="img-preview" id="img-prev" style="${t?.image_url ? `background-image:url('${esc(t.image_url)}')` : ''}">${t?.image_url ? '' : 'Aucune image'}</div>
+        <div class="row">
+          <label class="btn ghost sm file-btn">Choisir une image<input type="file" id="img-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+          <button type="button" class="btn ghost sm" id="img-clear">Retirer</button>
+        </div>
+        <small class="muted">PNG, JPG, WEBP ou GIF, 5 Mo maximum.</small>
+      </div>
+      <details class="rewards">
+        <summary>Récompenses (${RUBY} rubis et ⭐ points)</summary>
+        <table>
+          <tr><th></th><th>⭐ Points</th><th>Rubis</th></tr>
+          ${[['participation', 'Participation'], ['win', 'Par match gagné'], ['first', '🏆 Champion'], ['second', '🥈 2e'], ['third', '🥉 3e']].map(([k, l]) => `
+          <tr><td>${l}</td>
+            <td><input type="number" min="0" max="10000" name="rw_${k}_points" value="${rewardsOf(t)[k].points}"></td>
+            <td><input type="number" min="0" max="10000" name="rw_${k}_rubis" value="${rewardsOf(t)[k].rubis}"></td></tr>`).join('')}
+        </table>
+        <small class="muted">Gagnés automatiquement quand le tournoi se termine.</small>
+      </details>
       <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary">${t ? 'Enregistrer' : 'Créer'}</button></div>
     </form>`);
   $('#tform', box).addEventListener('submit', async e => {
@@ -216,10 +317,32 @@ function tournamentForm(t = null) {
       starts_at: f.get('starts_at') ? new Date(f.get('starts_at')).toISOString() : null,
     };
     if (f.get('format')) data.format = f.get('format');
+    data.rewards = {};
+    for (const k of Object.keys(DEFAULT_REWARDS)) {
+      data.rewards[k] = { points: Number(f.get(`rw_${k}_points`)) || 0, rubis: Number(f.get(`rw_${k}_rubis`)) || 0 };
+    }
+    const btn = e.target.querySelector('button.primary');
+    btn.disabled = true;
     await safe(async () => {
+      if (imgFile) { btn.textContent = 'Envoi de l\'image…'; data.image_url = await api.uploadImage(imgFile); }
+      else if (imgCleared) data.image_url = null;
       if (t) { await api.updateTournament(t.id, data); toast('Tournoi modifié'); route(); }
       else { const x = await api.createTournament(data); toast('Tournoi créé !'); location.hash = '#/tournoi/' + x.id; }
+      if (t?.status === 'done') { await syncRewards({ ...t, ...data }, t.bracket); }
     });
+    btn.disabled = false;
+  });
+  let imgFile = null, imgCleared = false;
+  const prev = $('#img-prev', box);
+  $('#img-file', box).addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { toast('Image trop lourde (5 Mo maximum)', 'err'); return; }
+    imgFile = f; imgCleared = false;
+    prev.style.backgroundImage = `url('${URL.createObjectURL(f)}')`; prev.textContent = '';
+  });
+  $('#img-clear', box).addEventListener('click', () => {
+    imgFile = null; imgCleared = true; prev.style.backgroundImage = ''; prev.textContent = 'Aucune image';
   });
 }
 
@@ -237,12 +360,15 @@ async function pageTournament(id) {
 
   app.innerHTML = `
     <a href="#/tournois" class="back">← Tous les tournois</a>
-    <div class="card thead">
+    <div class="card thead ${t.image_url ? 'with-img' : ''}">
+      ${t.image_url ? `<div class="thead-img" style="background-image:url('${esc(t.image_url)}')"></div>` : ''}
       <div class="tcard-top"><span class="badge ${t.status}">${STATUS[t.status]}</span><span class="fmt">${FORMAT[t.format]}</span></div>
       <h1>${esc(t.name)}</h1>
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
       ${t.starts_at ? `<p class="meta">📅 ${esc(fmtDate(t.starts_at))}</p>` : ''}
       ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
+      <div class="reward-line">À gagner : 🏆 ${pts(rewardsOf(t).first.points)} ${rubis(rewardsOf(t).first.rubis)}
+        · participation ${pts(rewardsOf(t).participation.points)} ${rubis(rewardsOf(t).participation.rubis)}</div>
       <div class="actions left">
         ${t.status === 'open' && !joined && !full ? '<button class="btn primary" id="join">Participer</button>' : ''}
         ${t.status === 'open' && joined ? '<button class="btn ghost" id="leave">Me désinscrire</button>' : ''}
@@ -258,7 +384,7 @@ async function pageTournament(id) {
       </div>` : ''}
     </div>
 
-    ${champ ? `<div class="card champion">🏆 <div>${avatar(champ, 'av lg')}</div><div><small>Vainqueur</small><strong>${esc(champ.username)}</strong></div></div>` : ''}
+    ${champ ? `<div class="card champion">🏆 <div>${avatar(champ, 'av lg')}</div><div><small>Vainqueur</small><strong>${uname(champ)}</strong></div></div>` : ''}
 
     ${t.bracket ? `
       <section>
@@ -272,7 +398,7 @@ async function pageTournament(id) {
       <div class="players">
         ${[...people.entries()].map(([uid, p]) => `
           <div class="player">
-            <a href="#/profil/${esc(uid)}">${avatar(p)}<span>${esc(p?.username)}</span></a>
+            <a href="#/profil/${esc(uid)}">${avatar(p)}${uname(p)}</a>
             ${topRole(p) ? rolePill(topRole(p)) : ''}
             ${me.is_admin && t.status === 'open' ? `<button class="x" data-kick="${esc(uid)}" title="Retirer">✕</button>` : ''}
           </div>`).join('') || '<p class="empty">Personne pour l\'instant. Sois le premier !</p>'}
@@ -289,11 +415,13 @@ async function pageTournament(id) {
   $('#edit')?.addEventListener('click', () => tournamentForm(t));
   $('#del')?.addEventListener('click', () => safe(async () => {
     if (!confirm(`Supprimer définitivement « ${t.name} » ?`)) return;
+    await api.clearTournamentRewards(id); await loadBalances();
     await api.deleteTournament(id); toast('Tournoi supprimé'); location.hash = '#/tournois';
   }));
   $('#reopen')?.addEventListener('click', () => safe(async () => {
     if (!confirm('L\'arbre et tous les scores seront effacés. Continuer ?')) return;
-    await api.updateTournament(id, { status: 'open', bracket: null, winner_id: null }); reload();
+    await api.updateTournament(id, { status: 'open', bracket: null, winner_id: null });
+    await syncRewards(t, null); renderNav(); reload();
   }));
   $('#launch')?.addEventListener('click', () => launchDialog(t, [...people.keys()], reload));
 
@@ -355,8 +483,9 @@ function scoreDialog(t, s, people, reload) {
     }
     const r = resolveBracket(bracket);
     await api.updateTournament(t.id, { bracket, status: r.champion ? 'done' : 'running', winner_id: r.champion ?? null });
+    if (r.champion || t.status === 'done') { await syncRewards(t, bracket); renderNav(); }
     closeModal();
-    if (r.champion) toast('🏆 Nous avons un champion !'); else toast('Score enregistré');
+    if (r.champion) toast('🏆 Nous avons un champion ! Les récompenses sont distribuées.'); else toast('Score enregistré');
     reload();
   };
   // Choisit automatiquement le vainqueur si les scores sont différents
@@ -403,7 +532,7 @@ function matchCard(s, people, keepGhost) {
     const isL = s.done && !s.bye && s.loser === id;
     const sc = s.result?.s ? s.result.s[idx] : '';
     let label;
-    if (p) label = `${avatar(p, 'av xs')}<span class="name">${esc(p.username)}</span>`;
+    if (p) label = `${avatar(p, 'av xs')}<span class="name">${uname(p)}</span>`;
     else if (s.deadSlot[idx]) label = `<span class="name muted">Exempt</span>`;
     else label = `<span class="name muted">En attente…</span>`;
     return `<div class="mslot ${isW ? 'win' : ''} ${isL ? 'lose' : ''}">${label}<span class="score">${isW && sc === '' ? '✓' : esc(sc)}</span></div>`;
@@ -421,7 +550,7 @@ async function pageMembers() {
     <div class="grid members" id="mlist"></div>`;
   const draw = q => {
     $('#mlist').innerHTML = list.filter(p => !q || p.username?.toLowerCase().includes(q) || rolesOf(p).some(r => r.name.toLowerCase().includes(q)))
-      .map(p => `<a class="card member" href="#/profil/${esc(p.id)}">${avatar(p, 'av lg')}<strong>${esc(p.username)}</strong>${topRole(p) ? rolePill(topRole(p)) : ''}</a>`)
+      .map(p => `<a class="card member" href="#/profil/${esc(p.id)}">${avatar(p, 'av lg')}<strong>${uname(p)}</strong>${topRole(p) ? rolePill(topRole(p)) : ''}<span class="member-money">${pts(bal(p.id).points)} ${rubis(bal(p.id).rubis)}</span></a>`)
       .join('') || '<p class="empty">Aucun membre trouvé.</p>';
   };
   draw('');
@@ -431,7 +560,8 @@ async function pageMembers() {
 // ---------- Profil ----------
 async function pageProfile(id) {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
-  const [p, ts] = await Promise.all([safe(() => api.getProfile(id)), safe(() => api.userStats(id))]);
+  await loadBalances();
+  const [p, ts, hist] = await Promise.all([safe(() => api.getProfile(id)), safe(() => api.userStats(id)), safe(() => api.ledger(id))]);
   if (!p) { app.innerHTML = '<p class="empty">Profil introuvable.</p>'; return; }
   const tours = ts || [];
   const wins = tours.filter(t => t.winner_id === id);
@@ -441,7 +571,7 @@ async function pageProfile(id) {
       <div class="profile-banner"></div>
       <div class="profile-body">
         ${avatar(p, 'av xl')}
-        <h1>${esc(p.username)}</h1>
+        <h1>${uname(p)}</h1>
         ${p.is_admin ? '<span class="pill-info">Organisateur de tournois</span>' : ''}
         <h3>Rôles sur le serveur</h3>
         <div class="roles">${rolesOf(p).map(rolePill).join('') || '<span class="muted">Aucun rôle</span>'}</div>
@@ -449,7 +579,10 @@ async function pageProfile(id) {
         <div class="stats">
           <div><strong>${tours.length}</strong><span>tournoi${tours.length > 1 ? 's' : ''} joué${tours.length > 1 ? 's' : ''}</span></div>
           <div><strong>${wins.length}</strong><span>victoire${wins.length > 1 ? 's' : ''} 🏆</span></div>
+          <div><strong>${pts(bal(id).points)}</strong><span>points · ${rankOf(id)}</span></div>
+          <div><strong>${rubis(bal(id).rubis)}</strong><span>rubis</span></div>
         </div>
+        ${state.me.is_admin ? `<button class="btn ghost sm" id="give">${RUBY} Donner / retirer des rubis ou points</button>` : ''}
       </div>
     </div>
     <section>
@@ -461,10 +594,134 @@ async function pageProfile(id) {
             <span class="badge ${t.status}">${STATUS[t.status]}</span>
           </a>`).join('') || '<p class="empty">Pas encore de tournoi.</p>'}
       </div>
+    </section>
+    <section>
+      <h2>Historique des gains</h2>
+      <div class="tlist">
+        ${(hist || []).map(l => `
+          <div class="tline">
+            <span>${esc(l.reason)}<small class="muted"> · ${new Date(l.created_at).toLocaleDateString('fr-FR')}</small></span>
+            <span class="gain">${l.points ? `<span class="${l.points < 0 ? 'neg' : ''}">${l.points > 0 ? '+' : ''}${pts(l.points)}</span>` : ''}
+              ${l.rubis ? `<span class="${l.rubis < 0 ? 'neg' : ''}">${l.rubis > 0 ? '+' : ''}${rubis(l.rubis)}</span>` : ''}</span>
+          </div>`).join('') || '<p class="empty">Rien pour l\'instant.</p>'}
+      </div>
     </section>`;
+  $('#give')?.addEventListener('click', () => giveDialog(p));
   $('#refresh-roles')?.addEventListener('click', () => api.signIn());
 }
 
+
+function rankOf(id) {
+  const sorted = [...state.balances.values()].sort((a, b) => b.points - a.points);
+  const i = sorted.findIndex(b => b.user_id === id);
+  return i < 0 ? 'non classé' : `${i + 1}${i === 0 ? 'er' : 'e'} au classement`;
+}
+
+function giveDialog(p) {
+  const box = openModal(`
+    <h2>${RUBY} Récompenser ${uname(p)}</h2>
+    <form class="form" id="gform">
+      <div class="row">
+        <label>⭐ Points<input type="number" name="points" value="0" step="1"></label>
+        <label>Rubis<input type="number" name="rubis" value="0" step="1"></label>
+      </div>
+      <small class="muted">Mets un nombre négatif pour retirer.</small>
+      <label>Raison<input name="reason" required maxlength="120" placeholder="Gagnant de l'event du samedi"></label>
+      <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary">Valider</button></div>
+    </form>`);
+  $('#gform', box).addEventListener('submit', e => safe(async () => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const row = { user_id: p.id, points: Number(f.get('points')) || 0, rubis: Number(f.get('rubis')) || 0, reason: f.get('reason').trim() };
+    if (!row.points && !row.rubis) return toast('Indique des points ou des rubis', 'err');
+    await api.addLedger([row]);
+    await loadBalances(); closeModal(); toast('C\'est enregistré !'); renderNav(); pageProfile(p.id);
+  }));
+}
+
+// ---------- Classement ----------
+async function pageLeaderboard() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const [members] = await Promise.all([safe(() => api.listMembers()), loadBalances()]);
+  const list = (members || []).map(m => ({ ...m, ...bal(m.id) }));
+  const by = { points: 'points', rubis: 'rubis' };
+  const draw = key => {
+    const sorted = [...list].sort((a, b) => b[key] - a[key] || a.username.localeCompare(b.username));
+    const podium = sorted.slice(0, 3);
+    $('#lb').innerHTML = `
+      <div class="podium">
+        ${[1, 0, 2].map(i => podium[i] ? `
+          <a href="#/profil/${esc(podium[i].id)}" class="podium-step p${i + 1}">
+            ${avatar(podium[i], 'av lg')}
+            <strong>${uname(podium[i])}</strong>
+            ${key === 'points' ? pts(podium[i].points) : rubis(podium[i].rubis)}
+            <div class="step">${['🥇', '🥈', '🥉'][i]}</div>
+          </a>` : '<div></div>').join('')}
+      </div>
+      <div class="lb-table">
+        ${sorted.map((m, i) => `
+          <a href="#/profil/${esc(m.id)}" class="lb-row ${m.id === state.me.id ? 'me-row' : ''}">
+            <span class="lb-rank">${i + 1}</span>
+            ${avatar(m, 'av sm')}
+            <span class="lb-name">${uname(m)}</span>
+            ${pts(m.points)} ${rubis(m.rubis)}
+          </a>`).join('') || '<p class="empty">Personne pour l\'instant.</p>'}
+      </div>`;
+  };
+  app.innerHTML = `
+    <div class="page-head"><h1>Classement</h1>
+      <div class="seg"><button class="on" data-k="points">⭐ Points</button><button data-k="rubis">${RUBY} Rubis</button></div>
+    </div>
+    <p class="small">On gagne des points et des rubis en participant aux tournois, en gagnant des matchs et grâce aux events des admins.</p>
+    <div id="lb"></div>`;
+  draw('points');
+  app.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+    app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
+    draw(by[b.dataset.k]);
+  }));
+}
+
+// ---------- Boutique ----------
+async function pageShop() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const me = state.me;
+  const [owned] = await Promise.all([safe(() => api.listOwned(me.id)), loadColors(), loadBalances()]);
+  const have = new Set(owned || []);
+  const money = bal(me.id).rubis;
+  app.innerHTML = `
+    <div class="page-head"><h1>Boutique</h1><div class="big-money">${rubis(money)}</div></div>
+    <p class="small">Achète une couleur pour ton pseudo avec tes rubis. Elle s'affiche partout sur le site : profil, arbres, classement…</p>
+    <div class="grid shop">
+      <div class="card color-card ${!me.name_color ? 'equipped' : ''}">
+        <div class="color-preview"><span class="uname" style="${esc(colorCss(topRole(me)?.color))}">${esc(me.username)}</span></div>
+        <strong>Couleur de mon rôle</strong>
+        <span class="muted">Gratuit</span>
+        ${!me.name_color ? '<span class="pill-info">Équipée</span>' : '<button class="btn ghost sm" data-equip="">Équiper</button>'}
+      </div>
+      ${[...state.colors.values()].map(c => `
+      <div class="card color-card ${me.name_color === c.id ? 'equipped' : ''}">
+        <div class="color-preview"><span class="uname" style="${esc(colorCss(c.style))}">${esc(me.username)}</span></div>
+        <strong>${esc(c.name)}</strong>
+        ${rubis(c.price)}
+        ${me.name_color === c.id ? '<span class="pill-info">Équipée</span>'
+          : have.has(c.id) ? `<button class="btn ghost sm" data-equip="${esc(c.id)}">Équiper</button>`
+          : `<button class="btn primary sm" data-buy="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Acheter</button>`}
+      </div>`).join('')}
+    </div>`;
+  app.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    const c = state.colors.get(b.dataset.buy);
+    if (!confirm(`Acheter « ${c.name} » pour ${c.price} rubis ?`)) return;
+    await api.buyColor(c.id);
+    state.me.name_color = c.id;
+    toast('Nouvelle couleur équipée !'); await loadBalances(); renderNav(); pageShop();
+  })));
+  app.querySelectorAll('[data-equip]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    const id = b.dataset.equip || null;
+    await api.equipColor(id);
+    state.me.name_color = id;
+    toast('Couleur changée'); renderNav(); pageShop();
+  })));
+}
 
 // ---------- Rôles (admins) ----------
 async function pageRoles() {
@@ -532,7 +789,7 @@ async function pageRoles() {
 (async () => {
   if (DEMO) document.body.classList.add('demo');
   state.me = await safe(() => api.init());
-  if (state.me?.in_guild) await loadRoles();
+  if (state.me?.in_guild) await Promise.all([loadRoles(), loadColors(), loadBalances()]);
   window.addEventListener('hashchange', route);
   route();
 })();
