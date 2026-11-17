@@ -375,3 +375,24 @@ footer a { color: var(--sea-dark); font-weight: 800; text-decoration: underline;
 .pv-big { font-size: 1.4rem; margin-bottom: 4px; }
 .pv-match { max-width: 260px; }
 .pv .lb-row { box-shadow: 0 2px 8px rgba(20,110,160,.1); }
+
+/* ---------- Compétitions ---------- */
+.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.comps { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.ccard { display: block; transition: transform .15s; overflow: hidden; border-color: #ffe680; background: linear-gradient(180deg, #fffdf3, #fff); }
+.ccard:hover { transform: translateY(-3px); border-color: var(--sun); }
+.ccard .tcard-img { margin: -20px -20px 14px; }
+.ccard-banner { margin: -20px -20px 14px; aspect-ratio: 4 / 1; display: grid; place-items: center; font-size: 2rem;
+  background: linear-gradient(135deg, #4fd0ff, #ffd84d); }
+.ccard h3 { margin: 10px 0 4px; font-size: 1.3rem; }
+.ccard-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { background: var(--sky2); border-radius: 999px; padding: 4px 10px; font-size: .8rem; font-weight: 700; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tabs { display: flex; gap: 6px; margin-top: 20px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { font: inherit; font-weight: 800; border: 0; cursor: pointer; padding: 9px 16px; border-radius: 999px; background: #fff;
+  color: var(--muted); white-space: nowrap; flex: none; box-shadow: 0 2px 6px rgba(20,110,160,.1); }
+.tabs button.on { background: var(--sea); color: #fff; }
+.small-champ { font-size: 1rem; padding: 10px 16px; margin: 6px 0 14px; display: inline-flex; gap: 10px; }
+.has-img.tcard .tcard-img, .tcard .tcard-img { margin-top: 0; }
+@media (max-width: 680px) { .ccard .tcard-img, .ccard-banner { margin: -16px -16px 12px; } .comps { grid-template-columns: 1fr; } }
+.thead-img { aspect-ratio: auto; height: clamp(160px, 45vw, 380px); max-height: none; width: auto; }

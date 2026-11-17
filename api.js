@@ -69,6 +69,15 @@ async function supabaseApi() {
       return parts.map(p => p.tournament).filter(Boolean);
     },
 
+    // ----- Compétitions -----
+    listCompetitions: async () => ok(await sb.from('wuhu_competitions').select('*, tournaments:wuhu_tournaments(id, name, status, winner_id)').order('created_at', { ascending: false })),
+    getCompetition: async id => ok(await sb.from('wuhu_competitions').select('*').eq('id', id).maybeSingle()),
+    createCompetition: async c => ok(await sb.from('wuhu_competitions').insert(c).select().single()),
+    updateCompetition: async (id, patch) => ok(await sb.from('wuhu_competitions').update(patch).eq('id', id)),
+    deleteCompetition: async id => ok(await sb.from('wuhu_competitions').delete().eq('id', id)),
+    tournamentsOf: async cid => ok(await sb.from('wuhu_tournaments').select('*, participants:wuhu_participants(count)').eq('competition_id', cid).order('position').order('created_at')),
+    ledgerForTournaments: async ids => ids.length ? ok(await sb.from('wuhu_ledger').select('user_id, points, rubis, tournament_id').in('tournament_id', ids)) : [],
+
     // ----- Images -----
     async uploadImage(file) {
       const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -141,7 +150,10 @@ function demoApi() {
       { id: 't2', name: 'Tournoi de sabre', game: 'Wii Sports Resort – Duel', description: 'Double élimination : tout le monde a une seconde chance.', format: 'double', status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-10' },
     ],
     participants: [],
+    competitions: [{ id: 'c1', name: 'Wuhu Contest 3', description: 'La grande journée de compétition de l\'île : 4 tournois !', image_url: null, starts_at: '2026-12-06T14:00:00Z', created_at: '2026-11-16' }],
   };
+  db.tournaments.forEach(t => { t.competition_id = 'c1'; });
+  db.tournaments.push({ id: 't3', name: 'Mario Kart – Coupe Champignon', game: 'Mario Kart Wii', description: null, format: 'single', status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-12', competition_id: null });
   ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].forEach((u, i) => db.participants.push({ tournament_id: 't1', user_id: u, joined_at: '2026-11-1' + i }));
   ['u0', 'u1', 'u2', 'u3', 'u4', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't2', user_id: u, joined_at: '2026-11-1' + i }));
   const prof = id => members.find(m => m.id === id);
@@ -176,6 +188,17 @@ function demoApi() {
     async userStats(id) {
       return db.participants.filter(p => p.user_id === id).map(p => clone(db.tournaments.find(t => t.id === p.tournament_id))).filter(Boolean);
     },
+    async listCompetitions() {
+      return clone(db.competitions).map(c => ({ ...c, tournaments: db.tournaments.filter(t => t.competition_id === c.id).map(t => ({ id: t.id, name: t.name, status: t.status, winner_id: t.winner_id })) }));
+    },
+    async getCompetition(id) { return clone(db.competitions.find(c => c.id === id) ?? null); },
+    async createCompetition(c) { const x = { id: 'c' + Date.now(), created_at: new Date().toISOString(), ...c }; db.competitions.unshift(x); return clone(x); },
+    async updateCompetition(id, patch) { Object.assign(db.competitions.find(c => c.id === id), clone(patch)); },
+    async deleteCompetition(id) { db.competitions = db.competitions.filter(c => c.id !== id); db.tournaments.forEach(t => { if (t.competition_id === id) t.competition_id = null; }); },
+    async tournamentsOf(cid) {
+      return clone(db.tournaments.filter(t => t.competition_id === cid)).map(t => ({ ...t, participants: [{ count: db.participants.filter(p => p.tournament_id === t.id).length }] }));
+    },
+    async ledgerForTournaments(ids) { return clone(ledger.filter(l => ids.includes(l.tournament_id))); },
     async uploadImage(file) {
       return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
     },

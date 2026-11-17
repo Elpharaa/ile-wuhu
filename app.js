@@ -155,6 +155,7 @@ async function route() {
   switch (parts[0]) {
     case 'tournois': return pageTournaments();
     case 'tournoi': return pageTournament(parts[1]);
+    case 'competition': return pageCompetition(parts[1], parts[2]);
     case 'membres': return pageMembers();
     case 'profil': return pageProfile(parts[1] || state.me.id);
     case 'roles': return state.me.is_admin ? pageRoles() : pageHome();
@@ -229,7 +230,9 @@ function tournamentCard(t) {
 
 async function pageHome() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
-  const list = await safe(() => api.listTournaments()) || [];
+  const [list0, comps0] = await Promise.all([safe(() => api.listTournaments()), safe(() => api.listCompetitions())]);
+  const list = list0 || [];
+  const liveComps = (comps0 || []).filter(c => compStatus(c) !== 'done');
   const me = state.me;
   const open = list.filter(t => t.status === 'open');
   const running = list.filter(t => t.status === 'running');
@@ -240,6 +243,7 @@ async function pageHome() {
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
       <div class="roles center">${rolesOf(me).map(rolePill).join('')}</div>
     </section>
+    ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
     <section>
       <h2>En cours</h2>
       <div class="grid">${running.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi en cours.</p>'}</div>
@@ -250,23 +254,176 @@ async function pageHome() {
     </section>`;
 }
 
+function compStatus(c) {
+  const ts = c.tournaments || [];
+  if (!ts.length) return 'open';
+  if (ts.every(t => t.status === 'done')) return 'done';
+  if (ts.some(t => t.status !== 'open')) return 'running';
+  return 'open';
+}
+function competitionCard(c) {
+  const ts = c.tournaments || [];
+  const st = compStatus(c);
+  return `
+    <a class="card ccard status-${st}" href="#/competition/${esc(c.id)}">
+      ${c.image_url ? `<div class="tcard-img" style="background-image:url('${esc(c.image_url)}')"></div>` : '<div class="ccard-banner">🏝️🏆</div>'}
+      <div class="tcard-top"><span class="badge ${st}">${STATUS[st]}</span><span class="fmt">Compétition</span></div>
+      <h3>${esc(c.name)}</h3>
+      ${c.starts_at ? `<p class="game">📅 ${esc(fmtDate(c.starts_at))}</p>` : ''}
+      <div class="ccard-list">${ts.map(t => `<span class="chip">${t.status === 'done' ? '🏆' : t.status === 'running' ? '⚔️' : '📝'} ${esc(t.name)}</span>`).join('') || '<span class="muted">Aucun tournoi pour l\'instant</span>'}</div>
+    </a>`;
+}
+
 async function pageTournaments() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
-  const list = await safe(() => api.listTournaments()) || [];
+  const [list, comps] = await Promise.all([safe(() => api.listTournaments()), safe(() => api.listCompetitions())]);
+  const solo = (list || []).filter(t => !t.competition_id);
   app.innerHTML = `
     <div class="page-head">
       <h1>Tournois</h1>
-      ${state.me.is_admin ? '<button class="btn primary" id="new-t">+ Créer un tournoi</button>' : ''}
+      ${state.me.is_admin ? `<div class="head-actions">
+        <button class="btn ghost" id="new-c">+ Compétition</button>
+        <button class="btn primary" id="new-t">+ Tournoi</button></div>` : ''}
     </div>
+    ${(comps || []).length ? `<section><h2>Compétitions</h2><div class="grid comps">${comps.map(competitionCard).join('')}</div></section>` : ''}
     ${['running', 'open', 'done'].map(s => {
-      const items = list.filter(t => t.status === s);
-      return items.length ? `<section><h2>${STATUS[s]}</h2><div class="grid">${items.map(tournamentCard).join('')}</div></section>` : '';
-    }).join('') || '<p class="empty">Aucun tournoi pour l\'instant.</p>'}`;
+      const items = solo.filter(t => t.status === s);
+      return items.length ? `<section><h2>${(comps || []).length ? 'Tournois seuls · ' : ''}${STATUS[s]}</h2><div class="grid">${items.map(tournamentCard).join('')}</div></section>` : '';
+    }).join('')}
+    ${!(list || []).length && !(comps || []).length ? '<p class="empty">Aucun tournoi pour l\'instant.</p>' : ''}`;
   $('#new-t')?.addEventListener('click', () => tournamentForm());
+  $('#new-c')?.addEventListener('click', () => competitionForm());
+}
+
+// ---------- Compétitions ----------
+function competitionForm(c = null) {
+  const toLocal = d => d ? new Date(new Date(d).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+  const box = openModal(`
+    <h2>${c ? 'Modifier la compétition' : 'Nouvelle compétition'}</h2>
+    <p class="small">Une compétition regroupe plusieurs tournois, par exemple tous ceux d'une même journée.</p>
+    <form id="cform" class="form">
+      <label>Nom<input name="name" required maxlength="80" value="${esc(c?.name)}" placeholder="Wuhu Contest 3"></label>
+      <label>Description<textarea name="description" rows="3" maxlength="800">${esc(c?.description)}</textarea></label>
+      <label>Date et heure (optionnel)<input name="starts_at" type="datetime-local" value="${toLocal(c?.starts_at)}"></label>
+      ${imageFieldHtml('Image de la compétition', c?.image_url)}
+      <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary">${c ? 'Enregistrer' : 'Créer'}</button></div>
+    </form>`);
+  const img = wireImageField(box);
+  $('#cform', box).addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const data = {
+      name: f.get('name').trim(),
+      description: f.get('description').trim() || null,
+      starts_at: f.get('starts_at') ? new Date(f.get('starts_at')).toISOString() : null,
+    };
+    const btn = e.target.querySelector('button.primary');
+    btn.disabled = true;
+    await safe(async () => {
+      await img.apply(data, btn);
+      if (c) { await api.updateCompetition(c.id, data); toast('Compétition modifiée'); route(); }
+      else { const x = await api.createCompetition(data); toast('Compétition créée ! Ajoute-lui des tournois.'); location.hash = '#/competition/' + x.id; }
+    });
+    btn.disabled = false;
+  });
+}
+
+async function pageCompetition(id, tab = 'apercu') {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const [c, ts, members] = await Promise.all([safe(() => api.getCompetition(id)), safe(() => api.tournamentsOf(id)), safe(() => api.listMembers())]);
+  if (!c) { app.innerHTML = '<p class="empty">Cette compétition n\'existe pas (ou plus).</p>'; return; }
+  const tours = ts || [];
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const me = state.me;
+  const st = compStatus({ tournaments: tours });
+
+  // Classement général : points gagnés dans les tournois de la compétition
+  const ledger = await safe(() => api.ledgerForTournaments(tours.map(t => t.id))) || [];
+  const totals = new Map();
+  ledger.forEach(l => {
+    const x = totals.get(l.user_id) || { points: 0, rubis: 0 };
+    x.points += l.points; x.rubis += l.rubis; totals.set(l.user_id, x);
+  });
+  const ranking = [...totals.entries()].filter(([u]) => people.has(u)).sort((a, b) => b[1].points - a[1].points);
+
+  const tabs = [['apercu', 'Vue d\'ensemble'], ...tours.map(t => [t.id, t.name])];
+  app.innerHTML = `
+    <a href="#/tournois" class="back">← Tous les tournois</a>
+    <div class="card thead ${c.image_url ? 'with-img' : ''}">
+      ${c.image_url ? `<div class="thead-img" style="background-image:url('${esc(c.image_url)}')"></div>` : ''}
+      <div class="tcard-top"><span class="badge ${st}">${STATUS[st]}</span><span class="fmt">Compétition · ${tours.length} tournoi${tours.length > 1 ? 's' : ''}</span></div>
+      <h1>${esc(c.name)}</h1>
+      ${c.starts_at ? `<p class="meta">📅 ${esc(fmtDate(c.starts_at))}</p>` : ''}
+      ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
+      ${me.is_admin ? `
+      <div class="admin-bar">
+        <span class="admin-label">Admin</span>
+        <button class="btn primary sm" id="add-t">+ Ajouter un tournoi</button>
+        <button class="btn ghost sm" id="edit-c">Modifier</button>
+        <button class="btn danger sm" id="del-c">Supprimer</button>
+      </div>` : ''}
+    </div>
+
+    <div class="tabs">${tabs.map(([k, l]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${esc(k)}">${esc(l)}</button>`).join('')}</div>
+    <div id="tab-body"></div>`;
+
+  const body = $('#tab-body');
+  const showOverview = () => {
+    body.innerHTML = `
+      <section>
+        <h2>Les tournois</h2>
+        <div class="grid">${tours.map(t => {
+          const champ = t.winner_id ? people.get(t.winner_id) : null;
+          return tournamentCard(t).replace('</a>', champ ? `<p class="meta">🏆 ${uname(champ)}</p></a>` : '</a>');
+        }).join('') || '<p class="empty">Aucun tournoi pour l\'instant.</p>'}</div>
+      </section>
+      <section>
+        <h2>Classement général</h2>
+        <p class="small">Les points gagnés dans tous les tournois de la compétition.</p>
+        <div class="lb-table">
+          ${ranking.map(([u, x], i) => `
+            <a href="#/profil/${esc(u)}" class="lb-row ${u === me.id ? 'me-row' : ''}">
+              <span class="lb-rank">${['🥇', '🥈', '🥉'][i] || i + 1}</span>
+              ${avatar(people.get(u), 'av sm')}
+              <span class="lb-name">${uname(people.get(u))}</span>
+              ${pts(x.points)} ${rubis(x.rubis)}
+            </a>`).join('') || '<p class="empty">Le classement apparaîtra quand les premiers tournois seront terminés.</p>'}
+        </div>
+      </section>`;
+  };
+  const showTournament = async tid => {
+    const t = tours.find(x => x.id === tid);
+    body.innerHTML = '<div class="loading">Chargement…</div>';
+    const parts = await safe(() => api.listParticipants(tid)) || [];
+    const ppl = new Map(parts.map(p => [p.user_id, p.profile]));
+    const res = t.bracket ? resolveBracket(t.bracket) : null;
+    body.innerHTML = `
+      <section>
+        <div class="page-head"><h2>${esc(t.name)}</h2><a class="btn ghost sm" href="#/tournoi/${esc(t.id)}">Ouvrir le tournoi →</a></div>
+        ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
+        ${res?.champion ? `<div class="card champion small-champ">🏆 ${avatar(ppl.get(res.champion), 'av')} <strong>${uname(ppl.get(res.champion))}</strong></div>` : ''}
+        ${t.bracket ? renderBracket(t.bracket, res, ppl)
+          : `<p class="empty">${ppl.size} inscrit${ppl.size > 1 ? 's' : ''}. L'arbre apparaîtra quand le tournoi sera lancé.</p>`}
+      </section>`;
+  };
+  const show = k => {
+    app.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
+    if (k === 'apercu') showOverview(); else showTournament(k);
+  };
+  show(tours.some(t => t.id === tab) ? tab : 'apercu');
+  app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+
+  $('#add-t')?.addEventListener('click', () => tournamentForm(null, id));
+  $('#edit-c')?.addEventListener('click', () => competitionForm(c));
+  $('#del-c')?.addEventListener('click', () => safe(async () => {
+    if (!confirm(`Supprimer la compétition « ${c.name} » ? Ses tournois seront gardés, mais ne seront plus regroupés.`)) return;
+    await api.deleteCompetition(id); toast('Compétition supprimée'); location.hash = '#/tournois';
+  }));
 }
 
 // ---------- Formulaire de création / modification ----------
-function tournamentForm(t = null) {
+async function tournamentForm(t = null, presetComp = null) {
+  const comps = await safe(() => api.listCompetitions()) || [];
   const toLocal = d => d ? new Date(new Date(d).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
   const box = openModal(`
     <h2>${t ? 'Modifier le tournoi' : 'Nouveau tournoi'}</h2>
@@ -284,17 +441,13 @@ function tournamentForm(t = null) {
         <label>Places max<input name="max_players" type="number" min="2" max="128" value="${esc(t?.max_players)}" placeholder="Illimité"></label>
       </div>
       <label>Date et heure (optionnel)<input name="starts_at" type="datetime-local" value="${toLocal(t?.starts_at)}"></label>
-      <div class="img-field">
-        <span>Image du tournoi</span>
-        <div class="img-preview" id="img-prev" style="${t?.image_url ? `background-image:url('${esc(t.image_url)}')` : ''}">${t?.image_url ? '' : 'Aucune image'}</div>
-        <div class="cropper hidden" id="cropper"><img alt="" draggable="false"><div class="crop-hint">Glisse pour déplacer</div></div>
-        <label class="zoom-row hidden" id="zoom-row">🔍<input type="range" id="zoom" min="1" max="4" step="0.01" value="1"></label>
-        <div class="row">
-          <label class="btn ghost sm file-btn">Choisir une image<input type="file" id="img-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
-          <button type="button" class="btn ghost sm" id="img-clear">Retirer</button>
-        </div>
-        <small class="muted">PNG, JPG ou WEBP. Recadre ton image en la déplaçant et en zoomant.</small>
-      </div>
+      <label>Compétition
+        <select name="competition_id">
+          <option value="">— Aucune (tournoi seul) —</option>
+          ${comps.map(c => `<option value="${esc(c.id)}" ${(t?.competition_id ?? presetComp) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+        </select>
+      </label>
+      ${imageFieldHtml('Image du tournoi', t?.image_url)}
       <details class="rewards">
         <summary>Récompenses (${RUBY} rubis et ⭐ points)</summary>
         <table>
@@ -319,6 +472,7 @@ function tournamentForm(t = null) {
       starts_at: f.get('starts_at') ? new Date(f.get('starts_at')).toISOString() : null,
     };
     if (f.get('format')) data.format = f.get('format');
+    data.competition_id = f.get('competition_id') || null;
     data.rewards = {};
     for (const k of Object.keys(DEFAULT_REWARDS)) {
       data.rewards[k] = { points: Number(f.get(`rw_${k}_points`)) || 0, rubis: Number(f.get(`rw_${k}_rubis`)) || 0 };
@@ -326,30 +480,54 @@ function tournamentForm(t = null) {
     const btn = e.target.querySelector('button.primary');
     btn.disabled = true;
     await safe(async () => {
-      if (crop) { btn.textContent = 'Envoi de l\'image…'; data.image_url = await api.uploadImage(await crop.toFile()); }
-      else if (imgCleared) data.image_url = null;
+      await img.apply(data, btn);
       if (t) { await api.updateTournament(t.id, data); toast('Tournoi modifié'); route(); }
       else { const x = await api.createTournament(data); toast('Tournoi créé !'); location.hash = '#/tournoi/' + x.id; }
       if (t?.status === 'done') { await syncRewards({ ...t, ...data }, t.bracket); }
     });
     btn.disabled = false;
   });
-  let crop = null, imgCleared = false;
+  const img = wireImageField(box);
+}
+
+// ---------- Champ image avec recadrage (réutilisable) ----------
+function imageFieldHtml(label, url) {
+  return `
+      <div class="img-field">
+        <span>${label}</span>
+        <div class="img-preview" id="img-prev" style="${url ? `background-image:url('${esc(url)}')` : ''}">${url ? '' : 'Aucune image'}</div>
+        <div class="cropper hidden" id="cropper"><img alt="" draggable="false"><div class="crop-hint">Glisse pour déplacer</div></div>
+        <label class="zoom-row hidden" id="zoom-row">🔍<input type="range" id="zoom" min="1" max="4" step="0.01" value="1"></label>
+        <div class="row">
+          <label class="btn ghost sm file-btn">Choisir une image<input type="file" id="img-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+          <button type="button" class="btn ghost sm" id="img-clear">Retirer</button>
+        </div>
+        <small class="muted">PNG, JPG ou WEBP. Recadre ton image en la déplaçant et en zoomant.</small>
+      </div>`;
+}
+function wireImageField(box) {
+  let crop = null, cleared = false;
   const prev = $('#img-prev', box);
   $('#img-file', box).addEventListener('change', async e => {
     const f = e.target.files[0];
     if (!f) return;
     if (f.size > 20 * 1024 * 1024) { toast('Image trop lourde (20 Mo maximum)', 'err'); return; }
-    imgCleared = false;
+    cleared = false;
     prev.classList.add('hidden');
     crop = await makeCropper($('#cropper', box), $('#zoom', box), f);
     $('#zoom-row', box).classList.remove('hidden');
   });
   $('#img-clear', box).addEventListener('click', () => {
-    crop = null; imgCleared = true;
+    crop = null; cleared = true;
     $('#cropper', box).classList.add('hidden'); $('#zoom-row', box).classList.add('hidden');
     prev.classList.remove('hidden'); prev.style.backgroundImage = ''; prev.textContent = 'Aucune image';
   });
+  return {
+    async apply(data, btn) {
+      if (crop) { if (btn) btn.textContent = 'Envoi de l\'image…'; data.image_url = await api.uploadImage(await crop.toFile()); }
+      else if (cleared) data.image_url = null;
+    },
+  };
 }
 
 // ---------- Recadrage d'image (format 2:1) ----------
@@ -448,9 +626,10 @@ async function pageTournament(id) {
   const full = t.max_players && people.size >= t.max_players;
   const res = t.bracket ? resolveBracket(t.bracket) : null;
   const champ = res?.champion ? people.get(res.champion) : null;
+  const comp = t.competition_id ? await safe(() => api.getCompetition(t.competition_id)) : null;
 
   app.innerHTML = `
-    <a href="#/tournois" class="back">← Tous les tournois</a>
+    ${comp ? `<a href="#/competition/${esc(comp.id)}" class="back">← ${esc(comp.name)}</a>` : '<a href="#/tournois" class="back">← Tous les tournois</a>'}
     <div class="card thead ${t.image_url ? 'with-img' : ''}">
       ${t.image_url ? `<div class="thead-img" style="background-image:url('${esc(t.image_url)}')"></div>` : ''}
       <div class="tcard-top"><span class="badge ${t.status}">${STATUS[t.status]}</span><span class="fmt">${FORMAT[t.format]}</span></div>
