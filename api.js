@@ -218,6 +218,10 @@ function demoApi() {
     competitions: [{ id: 'c1', name: 'Wuhu Contest 3', description: 'La grande journée de compétition de l\'île : 4 tournois !', image_url: null, starts_at: '2026-12-06T14:00:00Z', created_at: '2026-11-16' }],
   };
   db.tournaments.forEach(t => { t.competition_id = 'c1'; });
+  db.competitions.push({ id: 'c0', name: 'Wuhu Contest 2', description: null, image_url: null, starts_at: '2026-10-04T14:00:00Z', created_at: '2026-09-20' });
+  db.tournaments.push({ id: 't8', name: 'Bowling', game: 'Wii Sports', format: 'single', status: 'done', bracket: null, winner_id: 'u1', created_at: '2026-10-04', competition_id: 'c0' },
+    { id: 't9', name: 'Tennis', game: 'Wii Sports', format: 'single', status: 'done', bracket: null, winner_id: 'u2', created_at: '2026-10-04', competition_id: 'c0' });
+  [['u1', 't8', 60], ['u1', 't9', 20], ['u2', 't9', 60], ['u2', 't8', 10], ['u3', 't8', 25], ['u0', 't9', 30]].forEach(([u, t, n]) => addL(u, 0, n, 'Démo', t));
   db.tournaments.push({ id: 't3', name: 'Mario Kart – Coupe Champignon', game: 'Mario Kart Wii', description: null, format: 'single', status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-12', competition_id: null });
   ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].forEach((u, i) => db.participants.push({ tournament_id: 't1', user_id: u, joined_at: '2026-11-1' + i }));
   ['u0', 'u1', 'u2', 'u3', 'u4', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't2', user_id: u, joined_at: '2026-11-1' + i }));

@@ -276,7 +276,7 @@ function tintFromBackground(url) {
 //  Barre du haut (compte) + barre d'onglets en bas
 // =====================================================================
 const TABS = [['#/', 'Accueil', 'nav_accueil'], ['#/tournois', 'Tournois', 'nav_tournois', ['#/tournoi', '#/competition']],
-  ['#/classement', 'Classement', 'nav_classement'], ['#/membres', 'Membres', 'nav_membres', ['#/profil']], ['#/boutique', 'Boutique', 'nav_boutique']];
+  ['#/classement', 'Classement', 'nav_classement', ['#/pantheon']], ['#/membres', 'Membres', 'nav_membres', ['#/profil']], ['#/boutique', 'Boutique', 'nav_boutique']];
 let lastTab = null;
 const closeMeMenu = () => { $('#me-menu')?.setAttribute('hidden', ''); $('#me-btn')?.setAttribute('aria-expanded', 'false'); };
 document.addEventListener('click', e => { if (!e.target.closest('.me-wrap')) closeMeMenu(); });
@@ -300,6 +300,7 @@ function renderNav() {
          <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${state.achCount ? `<span class="notif">${state.achCount}</span>` : ''}${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
          <div class="me-menu" id="me-menu" hidden>
            <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
+           <a href="#/pantheon" class="${sub('#/pantheon')}">🏛️ Panthéon</a>
            <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès${state.achCount ? `<span class="notif in">${state.achCount}</span>` : ''}</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
            <a href="#/roles" class="${sub('#/roles')}">🎖️ Rôles</a>
@@ -340,6 +341,7 @@ async function route() {
     case 'classement': return pageLeaderboard();
     case 'boutique': return pageShop();
     case 'succes': return pageAchievements();
+    case 'pantheon': return pagePantheon();
     case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
   }
@@ -1530,12 +1532,61 @@ async function pageLeaderboard() {
       <div class="seg"><button class="on" data-k="points">${I.points} Points</button><button data-k="rubis">${I.rubis} Rubis</button></div>
     </div>
     <p class="small">On gagne des points et des rubis en participant aux tournois, en gagnant des matchs et grâce aux events des admins.</p>
+    <a href="#/pantheon" class="pantheon-link">🏛️ <span><b>Panthéon de Wuhu</b><small>Les champions de chaque compétition</small></span> →</a>
     <div id="lb"></div>`;
   draw('points');
   app.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
   }));
+}
+
+// ---------- Panthéon : un champion par compétition terminée ----------
+async function pagePantheon() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const [comps0, members] = await Promise.all([safe(() => api.listCompetitions()), safe(() => api.listMembers())]);
+  const done = (comps0 || []).filter(c => compStatus(c) === 'done' && (c.tournaments || []).length)
+    .sort((a, b) => (b.starts_at || b.created_at || '').localeCompare(a.starts_at || a.created_at || ''));
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const who = id => people.get(id) || { id, username: '?' };
+  const ledger = await safe(() => api.ledgerForTournaments(done.flatMap(c => c.tournaments.map(t => t.id)))) || [];
+  const halls = done.map(c => {
+    const ids = new Set(c.tournaments.map(t => t.id)), tot = new Map();
+    ledger.filter(l => ids.has(l.tournament_id)).forEach(l => tot.set(l.user_id, (tot.get(l.user_id) || 0) + (l.points || 0)));
+    const titles = uid => c.tournaments.filter(t => t.winner_id === uid).length;
+    const rank = [...tot].sort((a, b) => b[1] - a[1] || titles(b[0]) - titles(a[0])).slice(0, 3);
+    return { c, rank, titles };
+  }).filter(h => h.rank.length);
+  const date = c => (c.starts_at || c.created_at) ? new Date(c.starts_at || c.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  app.innerHTML = `
+    <div class="pantheon-head">
+      <div class="ph-cols" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <h1>🏛️ Panthéon de Wuhu</h1>
+      <p>Les grands champions de chaque compétition, gravés dans le marbre pour toujours.</p>
+    </div>
+    ${halls.map(({ c, rank, titles }) => {
+      const [first, ...rest] = rank, p = who(first[0]);
+      return `<section class="hall">
+        <div class="statue-wrap">
+          <a href="#/profil/${esc(p.id)}" class="statue">
+            <div class="st-glow"></div>
+            <div class="st-av">${avatarImg(p, 'av xl')}</div>
+            <div class="st-pedestal">
+              <span class="st-crown">👑</span>
+              <strong class="st-name">${esc(p.username)}</strong>
+              <span class="st-comp">Champion · ${esc(c.name)}</span>
+              <span class="st-meta">${pts(first[1])} · ${titles(first[0])} titre${titles(first[0]) > 1 ? 's' : ''} ${I.trophee}</span>
+            </div>
+          </a>
+        </div>
+        <div class="hall-info">
+          <h2><a href="#/competition/${esc(c.id)}">${esc(c.name)}</a></h2>
+          <p class="small">${esc(date(c))} · ${c.tournaments.length} tournoi${c.tournaments.length > 1 ? 's' : ''}</p>
+          ${rest.length ? `<div class="hall-podium">${rest.map(([uid, n], i) => `<a href="#/profil/${esc(uid)}" class="hp">${[I.medal2, I.medal3][i]} ${avatar(who(uid), 'av sm')} <span>${uname(who(uid))}</span> ${pts(n)}</a>`).join('')}</div>` : ''}
+          <div class="hall-tours">${c.tournaments.filter(t => t.winner_id).map(t => `<a href="#/tournoi/${esc(t.id)}" class="trophy">${I.trophee} ${esc(t.name)} : <b>${esc(who(t.winner_id).username)}</b></a>`).join('')}</div>
+        </div>
+      </section>`;
+    }).join('') || '<p class="empty">Aucune compétition terminée pour l\'instant : la première statue t\'attend peut-être !</p>'}`;
 }
 
 // ---------- Récompense du jour ----------
