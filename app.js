@@ -1375,7 +1375,7 @@ async function pageProfile(id) {
   const color = topRole(p)?.color || '#2fa4e7';
   app.innerHTML = `
     <div class="card profile" style="--pc:${esc(color)}">
-      <div class="profile-banner ${p.item_banner && state.items.get(p.item_banner) ? 'bn bn-' + esc(state.items.get(p.item_banner).effect) : ''}"></div>
+      <div class="profile-banner"></div>
       <div class="profile-body">
         ${avatar(p, 'av xl')}
         <h1>${uname(p)}</h1>
@@ -1533,7 +1533,7 @@ const colorRarity = price => price <= 80 ? 'commun' : price <= 140 ? 'rare' : pr
 const rarityTag = r => `<span class="rar ${RARITY[r]?.[1] || ''}">${RARITY[r]?.[0] || ''}</span>`;
 const SHOP_TABS = [
   ['coffres', '🎁', 'Coffre'], ['pseudo', '✨', 'Pseudos'], ['frame', '🖼️', 'Cadres'],
-  ['banner', '🏞️', 'Bannières'], ['title', '🏷️', 'Titres'], ['victory', '🎉', 'Victoires'],
+  ['title', '🏷️', 'Titres'], ['victory', '🎉', 'Victoires'],
 ];
 const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
 const KIND_LABEL = { pseudo: 'Effet de pseudo', frame: "Cadre d'avatar", banner: 'Bannière de profil', title: 'Titre', victory: 'Effet de victoire' };
@@ -1604,12 +1604,11 @@ async function pageShop(tab = state.shopTab || 'coffres') {
   };
 
   const body = tab === 'coffres' ? `
-      <p class="small">Tout s'obtient dans le coffre : effets de pseudo, cadres, bannières, titres et effets de victoire, au hasard.
+      <p class="small">Tout s'obtient dans le coffre : effets de pseudo, cadres, titres et effets de victoire, au hasard.
       Un doublon est recyclé en rubis. Équipe tes trouvailles dans les autres onglets.</p>
       <div class="chests-one">${(chests || []).map(chestCard).join('')}</div>`
     : `${tab === 'pseudo' ? `<p class="small">L'effet s'affiche partout sur le site : profil, arbres, classement…</p>`
         : tab === 'frame' ? `<p class="small">Un cadre animé autour de ta photo, partout sur le site.</p>`
-        : tab === 'banner' ? `<p class="small">Le décor en haut de ton profil.</p>`
         : tab === 'title' ? `<p class="small">Un petit titre sous ton pseudo : profil, membres, fiches de match.</p>`
         : `<p class="small">L'animation qui se déclenche sur la fiche du match quand tu gagnes.</p>`}
       <div class="grid shop">

@@ -157,7 +157,7 @@ function demoApi() {
   const members = names.map((n, i) => ({
     id: 'u' + i, username: n, avatar_url: `https://cdn.discordapp.com/embed/avatars/${i % 6}.png`,
     roles: roleSets[i], in_guild: true, is_admin: i === 0, name_color: i === 1 ? 'fx-feu' : i === 2 ? 'fx-musique' : null,
-    ...(i === 1 ? { item_frame: 'fr-feu', item_title: 'ti-feu', item_victory: 'vi-feu', item_banner: 'bn-feu' } : {}),
+    ...(i === 1 ? { item_frame: 'fr-feu', item_title: 'ti-feu', item_victory: 'vi-feu' } : {}),
   }));
   const colors = [
     ['vague', 'Vague de Wuhu', 40], ['led', 'Panneau LED', 60], ['glace', 'Glace', 80], ['feu', 'En feu', 80],
@@ -171,10 +171,6 @@ function demoApi() {
     ['fr-feu', 'frame', 'Cadre de Flammes', 'feu', 'rare'], ['fr-coeurs', 'frame', 'Cadre Cœurs', 'coeurs', 'rare'],
     ['fr-neon', 'frame', 'Cadre Néon', 'neon', 'rare'], ['fr-eclair', 'frame', 'Cadre Électrique', 'eclair', 'epique'],
     ['fr-galaxie', 'frame', 'Cadre Galaxie', 'galaxie', 'epique'], ['fr-or', 'frame', 'Cadre en Or', 'or', 'legendaire'],
-    ['bn-vague', 'banner', 'Bannière Lagon', 'vague', 'commun'], ['bn-glace', 'banner', 'Bannière Banquise', 'glace', 'commun'],
-    ['bn-feu', 'banner', 'Bannière Volcan', 'feu', 'rare'], ['bn-neon', 'banner', 'Bannière Néon', 'neon', 'rare'],
-    ['bn-coeurs', 'banner', 'Bannière Bonbon', 'coeurs', 'rare'], ['bn-galaxie', 'banner', 'Bannière Galaxie', 'galaxie', 'epique'],
-    ['bn-or', 'banner', 'Bannière Trésor', 'or', 'legendaire'],
     ['ti-nouveau', 'title', 'Petit nouveau', 'vague', 'commun'], ['ti-pecheur', 'title', 'Pêcheur de Wuhu', 'glace', 'commun'],
     ['ti-rock', 'title', 'Rockstar', 'musique', 'rare'], ['ti-coeur', 'title', "Cœur d'artichaut", 'coeurs', 'rare'],
     ['ti-feu', 'title', 'Âme en feu', 'feu', 'rare'], ['ti-glitch', 'title', 'Bug du système', 'glitch', 'epique'],
@@ -185,7 +181,7 @@ function demoApi() {
     ['vi-galaxie', 'victory', "Pluie d'étoiles", 'galaxie', 'epique'], ['vi-or', 'victory', "Pluie d'or", 'or', 'legendaire'],
   ].map(([id, kind, name, effect, rarity], position) => ({ id, kind, name, effect, rarity, price: PRICE[rarity], in_shop: false, position }));
   const chests = [{ id: 'wuhu', name: 'Coffre de Wuhu', price: 60, w_commun: 60, w_rare: 28, w_epique: 10, w_legendaire: 2 }];
-  let ownedItems = [['u1', 'fr-feu'], ['u1', 'ti-feu'], ['u1', 'vi-feu'], ['u1', 'bn-feu']];
+  let ownedItems = [['u1', 'fr-feu'], ['u1', 'ti-feu'], ['u1', 'vi-feu']];
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
