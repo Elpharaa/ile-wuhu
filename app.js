@@ -42,6 +42,11 @@ const ICON_SLOTS = [
   ['inscription', 'Inscriptions ouvertes', '📝'],
   ['date', 'Date', '📅'],
   ['avatar', 'Avatar par défaut', null],
+  ['nav_accueil', 'Menu : Accueil', '🏠'],
+  ['nav_tournois', 'Menu : Tournois', '🏆'],
+  ['nav_classement', 'Menu : Classement', '📊'],
+  ['nav_membres', 'Menu : Membres', '👥'],
+  ['nav_boutique', 'Menu : Boutique', '🛍️'],
 ];
 const iconDefault = k => k === 'rubis' ? RUBY_SVG : k === 'ile' ? ISLAND_SVG
   : k === 'avatar' ? `<img class="ic" src="${DEFAULT_AVATAR}" alt="">` : (ICON_SLOTS.find(x => x[0] === k)?.[2] ?? '');
@@ -145,6 +150,9 @@ async function settlePending() {
 
 const FORMAT = { single: 'Élimination directe', double: 'Double élimination' };
 const STATUS = { open: 'Inscriptions ouvertes', running: 'En cours', done: 'Terminé' };
+// Un tournoi rangé dans une compétition ne prend pas d'inscriptions lui-même : on s'inscrit via la compétition
+const tStatus = t => t.competition_id && t.status === 'open' ? 'wait' : t.status;
+const tBadge = t => { const st = tStatus(t); return `<span class="badge ${st}">${st === 'wait' ? 'Bientôt' : STATUS[st]}</span>`; };
 const fmtDate = d => d ? new Date(d).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
 
 function toast(msg, type = 'ok') {
@@ -189,6 +197,7 @@ function applyTheme() {
   b.style.setProperty('--bg-img', t.background_url ? `url("${t.background_url.replace(/"/g, '%22')}")` : 'none');
   b.style.setProperty('--bg-veil', String((t.veil ?? 30) / 100));
   const logo = $('.brand .logo'); if (logo) logo.innerHTML = I.logo;
+  tintFromBackground(t.background_url);
   const fav = document.querySelector('link[rel=icon]');
   if (fav) {
     fav.dataset.def ||= fav.href;
@@ -199,18 +208,85 @@ function applyTheme() {
 // =====================================================================
 //  Barre du haut
 // =====================================================================
+// Couleur de la barre : tirée du fond d'écran (teinte dominante), sinon bleu Wuhu
+let tintFor = null;
+function setTint(h, sat) {
+  const b = document.body.style;
+  b.setProperty('--tint-h', String(Math.round(h)));
+  b.setProperty('--tint-s', Math.round(sat) + '%');
+}
+function tintFromBackground(url) {
+  if (url === tintFor) return;
+  tintFor = url;
+  if (!url) return setTint(199, 80);
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = 48;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0, 48, 48);
+      const d = x.getImageData(0, 0, 48, 48).data;
+      let sx = 0, sy = 0, sw = 0, ss = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i] / 255, g = d[i + 1] / 255, bl = d[i + 2] / 255;
+        const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), l = (mx + mn) / 2, ch = mx - mn;
+        if (ch < .08 || l < .12 || l > .92) continue;
+        const sat = ch / (1 - Math.abs(2 * l - 1));
+        let h = mx === r ? ((g - bl) / ch) % 6 : mx === g ? (bl - r) / ch + 2 : (r - g) / ch + 4;
+        h *= 60; const w = sat * sat;
+        sx += Math.cos(h * Math.PI / 180) * w; sy += Math.sin(h * Math.PI / 180) * w; sw += w; ss += sat;
+      }
+      if (!sw) return setTint(210, 25);
+      const hue = (Math.atan2(sy, sx) * 180 / Math.PI + 360) % 360;
+      setTint(hue, Math.min(85, Math.max(35, ss / (d.length / 4) * 260)));
+    } catch { setTint(199, 80); }
+  };
+  img.onerror = () => setTint(199, 80);
+  img.src = url;
+}
+
+// =====================================================================
+//  Barre du haut (compte) + barre d'onglets en bas
+// =====================================================================
+const TABS = [['#/', 'Accueil', 'nav_accueil'], ['#/tournois', 'Tournois', 'nav_tournois', ['#/tournoi', '#/competition']],
+  ['#/classement', 'Classement', 'nav_classement'], ['#/membres', 'Membres', 'nav_membres', ['#/profil']], ['#/boutique', 'Boutique', 'nav_boutique']];
+let lastTab = null;
+const closeMeMenu = () => { $('#me-menu')?.setAttribute('hidden', ''); $('#me-btn')?.setAttribute('aria-expanded', 'false'); };
+document.addEventListener('click', e => { if (!e.target.closest('.me-wrap')) closeMeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMeMenu(); });
 function renderNav() {
   const me = state.me;
   const hash = location.hash || '#/';
-  const link = (h, label) => `<a href="${h}" class="${hash === h || (h !== '#/' && hash.startsWith(h.replace(/s$/, ''))) ? 'active' : ''}">${label}</a>`;
-  $('#nav').innerHTML = me?.in_guild
-    ? link('#/', 'Accueil') + link('#/tournois', 'Tournois') + link('#/classement', 'Classement') + link('#/membres', 'Membres') + link('#/boutique', 'Boutique') + (me.is_admin ? link('#/roles', 'Rôles') + link('#/parametres', 'Paramètres') : '')
-    : '';
+  const isOn = ([h, , , also = []]) => h === '#/' ? hash === '#/' || hash === '#' : [h, ...also].some(x => hash.startsWith(x));
+  const cur = TABS.find(isOn)?.[0] ?? null;
+  const dock = $('#dock');
+  dock.innerHTML = me?.in_guild ? TABS.map(t => `
+    <a href="${t[0]}" class="${t[0] === cur ? 'active' + (cur !== lastTab ? ' pop' : '') : ''}">
+      <span class="dk-ic">${I[t[2]]}</span><span class="dk-lb">${t[1]}</span></a>`).join('') : '';
+  dock.hidden = !me?.in_guild;
+  document.body.classList.toggle('with-dock', !!me?.in_guild);
+  lastTab = cur;
+  const sub = h => hash.startsWith(h) ? 'active' : '';
   $('#user').innerHTML = me
     ? `${me.in_guild ? `<a href="#/boutique" class="wallet">${rubis(bal(me.id).rubis)}</a>` : ''}
-       <a class="me" href="#/profil/${esc(me.id)}">${avatar(me, 'av sm')}${uname(me)}</a>
-       <button class="btn ghost sm" id="logout">Déconnexion</button>`
+       <div class="me-wrap">
+         <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
+         <div class="me-menu" id="me-menu" hidden>
+           <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
+           ${me.is_admin ? `<div class="mm-sep">Admin</div>
+           <a href="#/roles" class="${sub('#/roles')}">🎖️ Rôles</a>
+           <a href="#/parametres" class="${sub('#/parametres')}">⚙️ Paramètres</a>` : ''}
+           <div class="mm-sep"></div>
+           <button id="logout">⏻ Déconnexion</button>
+         </div>
+       </div>`
     : `<button class="btn discord sm" id="login">Connexion</button>`;
+  const btn = $('#me-btn'), menu = $('#me-menu');
+  if (btn) {
+    const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+    btn.addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute('aria-expanded', String(!menu.hidden)); });
+    menu.addEventListener('click', e => { if (e.target.closest('a')) close(); });
+  }
   $('#logout')?.addEventListener('click', () => api.signOut().then(() => { state.me = null; location.hash = '#/'; renderNav(); route(); }));
   $('#login')?.addEventListener('click', () => api.signIn());
 }
@@ -292,9 +368,9 @@ function pageNotMember() {
 function tournamentCard(t) {
   const n = t.participants?.[0]?.count ?? 0;
   return `
-    <a class="card tcard status-${t.status} ${t.image_url ? 'has-img' : ''}" href="#/tournoi/${esc(t.id)}">
+    <a class="card tcard status-${tStatus(t)} ${t.image_url ? 'has-img' : ''}" href="#/tournoi/${esc(t.id)}">
       ${t.image_url ? `<div class="tcard-img" style="background-image:url('${esc(t.image_url)}')"></div>` : ''}
-      <div class="tcard-top"><span class="badge ${t.status}">${STATUS[t.status]}</span><span class="fmt">${FORMAT[t.format]}</span></div>
+      <div class="tcard-top">${tBadge(t)}<span class="fmt">${FORMAT[t.format]}</span></div>
       <h3>${esc(t.name)}</h3>
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
       <p class="meta">${n} participant${n > 1 ? 's' : ''}${t.max_players ? ' / ' + t.max_players : ''}${t.starts_at ? ' · ' + esc(fmtDate(t.starts_at)) : ''}</p>
@@ -307,7 +383,8 @@ async function pageHome() {
   const list = list0 || [];
   const liveComps = (comps0 || []).filter(c => compStatus(c) !== 'done');
   const me = state.me;
-  const open = list.filter(t => t.status === 'open');
+  // Les tournois d'une compétition s'affichent via la carte de la compétition (inscription unique)
+  const open = list.filter(t => t.status === 'open' && !t.competition_id);
   const running = list.filter(t => t.status === 'running');
   app.innerHTML = `
     <section class="hero small-hero">
@@ -320,10 +397,10 @@ async function pageHome() {
       <h2>En cours</h2>
       <div class="grid">${running.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi en cours.</p>'}</div>
     </section>
-    <section>
+    ${open.length || !liveComps.length ? `<section>
       <h2>Inscriptions ouvertes</h2>
       <div class="grid">${open.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi ouvert pour le moment.</p>'}</div>
-    </section>`;
+    </section>` : ''}`;
 }
 
 function compStatus(c) {
@@ -780,16 +857,17 @@ async function pageTournament(id) {
     ${comp ? `<a href="#/competition/${esc(comp.id)}" class="back">← ${esc(comp.name)}</a>` : '<a href="#/tournois" class="back">← Tous les tournois</a>'}
     <div class="card thead ${t.image_url ? 'with-img' : ''}">
       ${t.image_url ? `<div class="thead-img" style="background-image:url('${esc(t.image_url)}')"></div>` : ''}
-      <div class="tcard-top"><span class="badge ${t.status}">${STATUS[t.status]}</span><span class="fmt">${FORMAT[t.format]}</span></div>
+      <div class="tcard-top">${tBadge(t)}<span class="fmt">${FORMAT[t.format]}</span></div>
       <h1>${esc(t.name)}</h1>
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
       ${t.starts_at ? `<p class="meta">${I.date} ${esc(fmtDate(t.starts_at))}</p>` : ''}
       ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
       ${rewardsBox(t)}
       <div class="actions left">
-        ${t.status === 'open' && !joined && !full ? '<button class="btn primary" id="join">Participer</button>' : ''}
-        ${t.status === 'open' && joined ? '<button class="btn ghost" id="leave">Me désinscrire</button>' : ''}
-        ${t.status === 'open' && !joined && full ? '<span class="pill-info">Complet</span>' : ''}
+        ${comp && t.status === 'open' ? `<a class="btn ${joined ? 'ghost' : 'primary'}" href="#/competition/${esc(comp.id)}">${joined ? '✓ Inscrit via ' : 'S\'inscrire sur '}${esc(comp.name)}</a>` : ''}
+        ${!comp && t.status === 'open' && !joined && !full ? '<button class="btn primary" id="join">Participer</button>' : ''}
+        ${!comp && t.status === 'open' && joined ? '<button class="btn ghost" id="leave">Me désinscrire</button>' : ''}
+        ${!comp && t.status === 'open' && !joined && full ? '<span class="pill-info">Complet</span>' : ''}
       </div>
       ${me.is_admin ? `
       <div class="admin-bar">
@@ -1169,7 +1247,7 @@ async function pageProfile(id) {
         ${tours.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).map(t => `
           <a href="#/tournoi/${esc(t.id)}" class="tline">
             <span>${t.winner_id === id ? I.trophee + ' ' : ''}${esc(t.name)}</span>
-            <span class="badge ${t.status}">${STATUS[t.status]}</span>
+            ${tBadge(t)}
           </a>`).join('') || '<p class="empty">Pas encore de tournoi.</p>'}
       </div>
     </section>
