@@ -127,6 +127,13 @@ async function supabaseApi() {
     buyItem: async id => ok(await sb.rpc('wuhu_buy_item', { p_item: id })),
     equipItem: async (kind, id) => ok(await sb.rpc('wuhu_equip_item', { p_kind: kind, p_item: id })),
     openChest: async id => ok(await sb.rpc('wuhu_open_chest', { p_chest: id })),
+    // ----- Récompense du jour et succès -----
+    getDaily: async uid => ok(await sb.from('wuhu_daily').select('*').eq('user_id', uid).maybeSingle()),
+    claimDaily: async () => ok(await sb.rpc('wuhu_claim_daily')),
+    listAchievements: async () => ok(await sb.from('wuhu_achievements').select('*').order('position')),
+    achievementsDone: async uid => ok(await sb.from('wuhu_achievements_done').select('achievement_id, done_at').eq('user_id', uid)),
+    myStats: async () => ok(await sb.rpc('wuhu_my_stats')),
+    claimAchievement: async id => ok(await sb.rpc('wuhu_claim_achievement', { p_id: id })),
 
     subscribe(tid, cb) {
       const ch = sb.channel('t-' + tid)
@@ -182,6 +189,15 @@ function demoApi() {
   ].map(([id, kind, name, effect, rarity], position) => ({ id, kind, name, effect, rarity, price: PRICE[rarity], in_shop: false, position }));
   const chests = [{ id: 'wuhu', name: 'Coffre de Wuhu', price: 60, w_commun: 60, w_rare: 28, w_epique: 10, w_legendaire: 2 }];
   let ownedItems = [['u1', 'fr-feu'], ['u1', 'ti-feu'], ['u1', 'vi-feu']];
+  let daily = { user_id: 'u0', last_claim: new Date(Date.now() - 864e5).toISOString().slice(0, 10), streak: 3, best_streak: 3 };
+  const achievements = [
+    ['bienvenue', "Bienvenue sur l'île", 'Te connecter au site', '🏝️', 'login', 1, 10], ['tournoi-1', 'Premier tournoi', 'Jouer 1 tournoi', '🎮', 'played', 1, 15],
+    ['tournoi-5', 'Habitué', 'Jouer 5 tournois', '🎯', 'played', 5, 40], ['match-1', 'Première victoire', 'Gagner 1 match', '⚔️', 'mwins', 1, 10],
+    ['match-10', 'Combattant', 'Gagner 10 matchs', '🥊', 'mwins', 10, 50], ['titre-1', 'Champion', 'Remporter 1 tournoi', '🏆', 'titles', 1, 60],
+    ['coffre-1', 'Chasseur de trésor', 'Ouvrir 1 coffre', '🎁', 'chests', 1, 10], ['collec-10', 'Collectionneur', 'Posséder 10 objets ou effets', '🧺', 'collection', 10, 30],
+    ['collec-all', 'Collection complète', 'Posséder tous les objets et effets', '💎', 'collection', 0, 300], ['fidele-7', 'Fidèle', "Récompense du jour 7 jours d'affilée", '📅', 'streak', 7, 50],
+  ].map(([id, name, description, icon, metric, goal, reward], position) => ({ id, name, description, icon, metric, goal, reward, position }));
+  const achDone = [['u0', 'bienvenue'], ['u1', 'bienvenue'], ['u1', 'match-1']];
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
@@ -326,6 +342,27 @@ function demoApi() {
       addL(me.id, -it.price, 0, 'Achat : ' + it.name); ownedItems.push([me.id, id]); me[SLOT[it.kind]] = id;
     },
     async equipItem(kind, id) { me[SLOT[kind]] = id; },
+    async getDaily(uid) { return uid === me.id ? clone(daily) : null; },
+    async claimDaily() {
+      const today = new Date().toISOString().slice(0, 10), y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+      if (daily?.last_claim === today) throw new Error("Déjà récupérée aujourd'hui, reviens demain !");
+      const streak = daily?.last_claim === y ? daily.streak + 1 : 1;
+      const amount = [5, 5, 10, 10, 15, 15, 30][(streak - 1) % 7];
+      daily = { user_id: me.id, last_claim: today, streak, best_streak: Math.max(streak, daily?.best_streak || 0) };
+      addL(me.id, amount, 0, `Récompense du jour (jour ${streak})`); return { streak, amount };
+    },
+    async listAchievements() { return clone(achievements); },
+    async achievementsDone(uid) { return achDone.filter(a => a[0] === uid).map(a => ({ achievement_id: a[1], done_at: new Date().toISOString() })); },
+    async myStats() {
+      return { login: 1, played: db.participants.filter(p => p.user_id === me.id).length, titles: 0, mwins: 2,
+        chests: ledger.filter(l => l.user_id === me.id && l.reason.startsWith('Ouverture')).length,
+        collection: owned.filter(o => o[0] === me.id).length + ownedItems.filter(o => o[0] === me.id).length,
+        collection_total: items.length + colors.length, streak: daily?.best_streak || 0 };
+    },
+    async claimAchievement(id) {
+      const a = achievements.find(x => x.id === id); achDone.push([me.id, id]);
+      addL(me.id, a.reward, 0, 'Succès : ' + a.name); return { reward: a.reward };
+    },
     async openChest(cid) {
       const c = chests.find(x => x.id === cid);
       const bal = ledger.filter(l => l.user_id === me.id).reduce((a, l) => a + l.rubis, 0);

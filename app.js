@@ -300,6 +300,7 @@ function renderNav() {
          <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
          <div class="me-menu" id="me-menu" hidden>
            <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
+           <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
            <a href="#/roles" class="${sub('#/roles')}">🎖️ Rôles</a>
            <a href="#/parametres" class="${sub('#/parametres')}">⚙️ Paramètres</a>` : ''}
@@ -338,6 +339,7 @@ async function route() {
     case 'roles': return state.me.is_admin ? pageRoles() : pageHome();
     case 'classement': return pageLeaderboard();
     case 'boutique': return pageShop();
+    case 'succes': return pageAchievements();
     case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
   }
@@ -420,6 +422,7 @@ async function pageHome() {
       <h1>Salut ${uname(me)} !</h1>
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
     </section>
+    <div id="daily-slot"></div>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -431,6 +434,7 @@ async function pageHome() {
       <h2>Inscriptions ouvertes</h2>
       <div class="grid">${open.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi ouvert pour le moment.</p>'}</div>
     </section>` : ''}`;
+  drawDaily();
 }
 
 
@@ -1372,6 +1376,13 @@ async function pageProfile(id) {
   const vsMe = id !== state.me.id ? headToHead(mm).get(state.me.id) : null;
   const wins = tours.filter(t => t.winner_id === id);
   const color = topRole(p)?.color || '#2fa4e7';
+  Promise.all([safe(() => api.listAchievements()), safe(() => api.achievementsDone(id))]).then(([all, done]) => {
+    const el = $('#prof-ach'); if (!el || !all) return;
+    const got = new Set((done || []).map(x => x.achievement_id));
+    el.innerHTML = `<h2>Succès <small class="muted">${got.size} / ${all.length}</small></h2>
+      <div class="ach-badges">${all.map(a => `<span class="ach-badge ${got.has(a.id) ? 'on' : ''}" title="${esc(a.name)} : ${esc(a.description)}">${esc(a.icon)}</span>`).join('')}</div>
+      ${id === state.me.id ? '<a href="#/succes" class="small">Voir mes succès →</a>' : ''}`;
+  });
   app.innerHTML = `
     <div class="card profile" style="--pc:${esc(color)}">
       <div class="profile-banner"></div>
@@ -1406,6 +1417,7 @@ async function pageProfile(id) {
       </div>
       ${wins.length ? `<div class="trophies">${wins.map(t => `<a href="#/tournoi/${esc(t.id)}" class="trophy">${I.trophee} ${esc(t.name)}</a>`).join('')}</div>` : ''}
     </section>
+    <section id="prof-ach"></section>
     <section>
       <h2>Historique des matchs</h2>
       <div class="tlist mhist">
@@ -1523,6 +1535,86 @@ async function pageLeaderboard() {
   app.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
+  }));
+}
+
+// ---------- Récompense du jour ----------
+const DAILY = [5, 5, 10, 10, 15, 15, 30];
+const parisDay = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
+async function drawDaily() {
+  const slot = $('#daily-slot'); if (!slot) return;
+  const me = state.me;
+  const [d, ach, done, st] = await Promise.all([safe(() => api.getDaily(me.id)), safe(() => api.listAchievements()), safe(() => api.achievementsDone(me.id)), safe(() => api.myStats())]);
+  if (!$('#daily-slot')) return;
+  const today = parisDay(), yesterday = parisDay(new Date(Date.now() - 864e5));
+  const claimed = d?.last_claim === today;
+  // jour de la semaine où l'on en est (la série continue si on est venu hier)
+  const streak = claimed ? d.streak : d?.last_claim === yesterday ? d.streak + 1 : 1;
+  const pos = (streak - 1) % 7;
+  const ready = achReady(ach || [], new Set((done || []).map(x => x.achievement_id)), st || {});
+  slot.innerHTML = `<section class="daily card ${claimed ? 'claimed' : 'ready'}">
+    <div class="daily-head">
+      <div><h2>🎁 Récompense du jour</h2><p class="small">${claimed ? `Série de <b>${streak} jour${streak > 1 ? 's' : ''}</b> 🔥 Reviens demain pour la suite !` : streak > 1 ? `Série de ${streak - 1} jour${streak > 2 ? 's' : ''} en cours : ne la casse pas !` : 'Connecte-toi chaque jour : les gains grimpent jusqu\'au 7ᵉ jour.'}</p></div>
+      ${claimed ? '<span class="pill-info">✓ Récupérée</span>' : `<button class="btn primary" id="daily-claim">Récupérer ${rubis(DAILY[pos])}</button>`}
+    </div>
+    <div class="daily-week">${DAILY.map((r, i) => `<div class="dday ${i < pos || (claimed && i === pos) ? 'got' : i === pos ? 'now' : ''} ${i === 6 ? 'big' : ''}">
+      <small>Jour ${i + 1}</small><span>${i === 6 ? '💎' : I.rubis}</span><b>${r}</b></div>`).join('')}</div>
+    ${ready.length ? `<a href="#/succes" class="ach-ready">🏅 ${ready.length} succès à récupérer ! <span>Voir →</span></a>` : ''}
+  </section>`;
+  $('#daily-claim', slot)?.addEventListener('click', e => safe(async () => {
+    e.target.disabled = true;
+    const r = await api.claimDaily();
+    toast(`+${r.amount} rubis ! Jour ${r.streak} 🔥`);
+    burst(e.target);
+    await loadBalances(); renderNav(); drawDaily();
+    const hm = $('.hero-money'); if (hm) hm.innerHTML = `${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}`;
+  }));
+}
+// petite explosion de rubis autour d'un bouton
+function burst(el) {
+  const r = el.getBoundingClientRect();
+  for (let i = 0; i < 14; i++) {
+    const s = document.createElement('span'); s.className = 'burst'; s.textContent = '💎';
+    const a = (i / 14) * Math.PI * 2, d = 60 + (i % 3) * 25;
+    s.style.cssText = `left:${r.left + r.width / 2}px;top:${r.top + r.height / 2}px;--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px`;
+    document.body.appendChild(s); setTimeout(() => s.remove(), 900);
+  }
+}
+
+// ---------- Succès ----------
+const achGoal = (a, st) => a.goal || (a.metric === 'collection' ? st.collection_total || 0 : 0);
+const achReady = (list, done, st) => list.filter(a => !done.has(a.id) && (st[a.metric] || 0) >= achGoal(a, st));
+async function pageAchievements() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const me = state.me;
+  const [list, done0, st0] = await Promise.all([safe(() => api.listAchievements()), safe(() => api.achievementsDone(me.id)), safe(() => api.myStats())]);
+  const done = new Set((done0 || []).map(x => x.achievement_id)), st = st0 || {};
+  const all = list || [];
+  const ready = new Set(achReady(all, done, st).map(a => a.id));
+  const order = a => ready.has(a.id) ? 0 : done.has(a.id) ? 2 : 1;
+  app.innerHTML = `
+    <div class="page-head"><h1>Mes succès</h1><div class="big-money">🏅 ${done.size} / ${all.length}</div></div>
+    <p class="small">Débloque des succès en jouant, en gagnant et en ouvrant des coffres. Chaque succès rapporte des rubis.</p>
+    ${ready.size > 1 ? '<div class="actions"><button class="btn primary" id="ach-all">Tout récupérer</button></div>' : ''}
+    <div class="ach-list">${[...all].sort((a, b) => order(a) - order(b) || a.position - b.position).map(a => {
+      const goal = achGoal(a, st), v = Math.min(st[a.metric] || 0, goal), isDone = done.has(a.id), isReady = ready.has(a.id);
+      return `<div class="ach card ${isDone ? 'done' : isReady ? 'ready' : 'locked'}">
+        <div class="ach-ic">${esc(a.icon)}</div>
+        <div class="ach-body"><strong>${esc(a.name)}</strong><small>${esc(a.description)}</small>
+          ${isDone ? '' : `<div class="ach-bar"><i style="width:${goal ? Math.round(100 * v / goal) : 100}%"></i><span>${v} / ${goal}</span></div>`}</div>
+        <div class="ach-side">${isDone ? '<span class="ach-ok">✓</span>' : isReady ? `<button class="btn primary sm" data-ach="${esc(a.id)}">+${a.reward} ${I.rubis}</button>` : `<span class="ach-rew">${rubis(a.reward)}</span>`}</div>
+      </div>`;
+    }).join('')}</div>`;
+  const claim = async id => { const r = await api.claimAchievement(id); return r.reward; };
+  app.querySelectorAll('[data-ach]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    b.disabled = true; const n = await claim(b.dataset.ach); burst(b); toast(`Succès débloqué ! +${n} rubis`);
+    await loadBalances(); renderNav(); setTimeout(pageAchievements, 500);
+  })));
+  $('#ach-all')?.addEventListener('click', e => safe(async () => {
+    e.target.disabled = true; let n = 0;
+    for (const id of ready) n += await claim(id);
+    burst(e.target); toast(`${ready.size} succès récupérés ! +${n} rubis`);
+    await loadBalances(); renderNav(); setTimeout(pageAchievements, 500);
   }));
 }
 
