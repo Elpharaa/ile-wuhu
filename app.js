@@ -388,12 +388,16 @@ async function pageHome() {
   // Les tournois d'une compétition s'affichent via la carte de la compétition (inscription unique)
   const open = list.filter(t => t.status === 'open' && !t.competition_id);
   const running = list.filter(t => t.status === 'running');
+  const todo = matchesOf(list.filter(t => t.status === 'running'), me.id).filter(x => !x.done);
+  const people = todo.length ? new Map(((await safe(() => api.listMembers())) || []).map(p => [p.id, p])) : new Map();
   app.innerHTML = `
     <section class="hero small-hero">
       <h1>Salut ${uname(me)} !</h1>
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
       <div class="roles center">${rolesOf(me).map(rolePill).join('')}</div>
     </section>
+    ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
+      <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
     <section>
       <h2>En cours</h2>
@@ -403,6 +407,64 @@ async function pageHome() {
       <h2>Inscriptions ouvertes</h2>
       <div class="grid">${open.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi ouvert pour le moment.</p>'}</div>
     </section>` : ''}`;
+}
+
+
+// =====================================================================
+//  Historique des matchs, palmarès et face-à-face (calculés depuis les arbres)
+// =====================================================================
+function allMatches(tours) {
+  const out = [];
+  for (const t of tours || []) {
+    if (!t?.bracket?.matches) continue;
+    const res = resolveBracket(t.bracket);
+    t.bracket.matches.forEach((m, order) => {
+      const s = res.state[m.id];
+      if (!s.playable || !s.players[0] || !s.players[1]) return;
+      out.push({ t, m, s, order, title: roundTitle(t.bracket, m.b, m.r) });
+    });
+  }
+  // du plus récent au plus ancien
+  return out.sort((a, b) => (b.t.created_at || '').localeCompare(a.t.created_at || '') || b.order - a.order);
+}
+function matchesOf(tours, uid) {
+  return allMatches(tours).filter(x => x.s.players.includes(uid)).map(x => {
+    const i = x.s.players.indexOf(uid);
+    const sc = x.s.result?.s;
+    return { ...x, opp: x.s.players[1 - i], done: x.s.done, won: x.s.done && x.s.winner === uid,
+      mine: sc ? sc[i] : null, theirs: sc ? sc[1 - i] : null };
+  });
+}
+function headToHead(list) {
+  const map = new Map();
+  for (const x of list) {
+    if (!x.done) continue;
+    const r = map.get(x.opp) || { w: 0, l: 0 };
+    x.won ? r.w++ : r.l++;
+    map.set(x.opp, r);
+  }
+  return map;
+}
+// Finale perdue : défaite au dernier match du tableau (finale / grande finale)
+function isFinal(x) {
+  const R = x.t.bracket.rounds || {};
+  return x.t.bracket.format === 'double' ? x.m.b === 'GF' : x.m.b === 'W' && x.m.r === R.W;
+}
+function bestStreak(list) {
+  let best = 0, cur = 0;
+  for (const x of [...list].reverse()) { if (!x.done) continue; cur = x.won ? cur + 1 : 0; best = Math.max(best, cur); }
+  return best;
+}
+function vsCard(x, me, opp) {
+  return `<a class="card next-match" href="#/tournoi/${esc(x.t.id)}">
+    <div class="nm-head"><span class="nm-round">${esc(x.title)}</span><span class="nm-tour">${esc(x.t.name)}</span></div>
+    <div class="nm-arena">
+      <div class="nm-p">${avatar(me, 'av lg')}<b>${uname(me)}</b></div>
+      <div class="nm-vs">VS</div>
+      <div class="nm-p">${avatar(opp, 'av lg')}<b>${uname(opp)}</b></div>
+    </div>
+    <div class="nm-go">⚡ C'est à vous de jouer !</div>
+  </a>`;
 }
 
 function compStatus(c) {
@@ -1078,8 +1140,15 @@ function matchSheet(t, s, people, reload, canEdit) {
     </div>
     <div class="ms-status ${s.done ? 'done' : s.playable ? 'live' : ''}">${status}</div>
     ${by ? `<p class="ms-by">Résultat déclaré par ${uname(by)}</p>` : ''}
+    ${s.players[0] && s.players[1] ? '<div class="ms-h2h" id="ms-h2h"></div>' : ''}
     ${canEdit && s.playable ? `<div class="actions center"><button class="btn primary" id="ms-edit">${s.done ? '✏️ Corriger le score' : '⚡ Renseigner le score'}</button></div>` : ''}`, 'match-sheet');
   $('#ms-edit', box)?.addEventListener('click', () => scoreDialog(t, s, people, reload, canEdit === 'player'));
+  // Face-à-face entre les deux joueurs, tous tournois confondus
+  if (s.players[0] && s.players[1]) safe(() => api.listTournaments()).then(all => {
+    const el = $('#ms-h2h', box); if (!el) return;
+    const r = headToHead(matchesOf(all || [], s.players[0])).get(s.players[1]) || { w: 0, l: 0 };
+    el.innerHTML = r.w + r.l ? `<small>Face-à-face</small><b><span class="${r.w >= r.l ? 'hi' : ''}">${r.w}</span> – <span class="${r.l >= r.w ? 'hi' : ''}">${r.l}</span></b><small>${r.w + r.l} match${r.w + r.l > 1 ? 's' : ''}</small>` : '<small>Premier affrontement entre eux !</small>';
+  });
 }
 
 function scoreDialog(t, s, people, reload, asPlayer = false) {
@@ -1265,9 +1334,17 @@ async function addPlayersDialog({ title, note, already, room, addMember, addGues
 async function pageProfile(id) {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   await loadBalances();
-  const [p, ts, hist] = await Promise.all([safe(() => api.getProfile(id)), safe(() => api.userStats(id)), safe(() => api.ledger(id))]);
+  const [p, ts, hist, members] = await Promise.all([safe(() => api.getProfile(id)), safe(() => api.userStats(id)), safe(() => api.ledger(id)), safe(() => api.listMembers())]);
   if (!p) { app.innerHTML = '<p class="empty">Profil introuvable.</p>'; return; }
   const tours = ts || [];
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const who = uid => people.get(uid) || { id: uid, username: '?' };
+  const mm = matchesOf(tours, id);
+  const played = mm.filter(x => x.done);
+  const W = played.filter(x => x.won).length, L = played.length - W;
+  const finals = played.filter(x => !x.won && isFinal(x));
+  const h2h = [...headToHead(mm)].sort((a, b) => (b[1].w + b[1].l) - (a[1].w + a[1].l));
+  const vsMe = id !== state.me.id ? headToHead(mm).get(state.me.id) : null;
   const wins = tours.filter(t => t.winner_id === id);
   const color = topRole(p)?.color || '#2fa4e7';
   app.innerHTML = `
@@ -1289,6 +1366,43 @@ async function pageProfile(id) {
         ${state.me.is_admin ? `<button class="btn ghost sm" id="give">${I.rubis} Donner / retirer des rubis ou points</button>` : ''}
       </div>
     </div>
+    ${vsMe ? `<div class="card h2h-me">
+      ${avatar(state.me, 'av md')}<div><small>Toi contre ${uname(p)}</small>
+      <b class="${vsMe.w > vsMe.l ? 'up' : vsMe.w < vsMe.l ? 'down' : ''}">${vsMe.w} – ${vsMe.l}</b></div>${avatar(p, 'av md')}</div>` : ''}
+    <section>
+      <h2>Palmarès</h2>
+      <div class="palma">
+        <div class="pal gold"><span>🏆</span><b>${wins.length}</b><small>titre${wins.length > 1 ? 's' : ''}</small></div>
+        <div class="pal silver"><span>🥈</span><b>${finals.length}</b><small>finale${finals.length > 1 ? 's' : ''} perdue${finals.length > 1 ? 's' : ''}</small></div>
+        <div class="pal"><span>⚔️</span><b>${W} – ${L}</b><small>victoires – défaites</small></div>
+        <div class="pal"><span>📈</span><b>${played.length ? Math.round(100 * W / played.length) : 0}%</b><small>de victoires</small></div>
+        <div class="pal fire"><span>🔥</span><b>${bestStreak(mm)}</b><small>meilleure série</small></div>
+      </div>
+      ${wins.length ? `<div class="trophies">${wins.map(t => `<a href="#/tournoi/${esc(t.id)}" class="trophy">${I.trophee} ${esc(t.name)}</a>`).join('')}</div>` : ''}
+    </section>
+    <section>
+      <h2>Historique des matchs</h2>
+      <div class="tlist mhist">
+        ${mm.slice(0, 30).map(x => `
+          <a href="#/tournoi/${esc(x.t.id)}" class="tline mrow ${x.done ? (x.won ? 'w' : 'l') : 'todo'}">
+            <span class="mres">${x.done ? (x.won ? 'V' : 'D') : '⚔️'}</span>
+            <span class="mopp">${avatar(who(x.opp), 'av sm')} <span>${uname(who(x.opp))}</span></span>
+            <span class="mscore">${x.mine != null ? `${esc(x.mine)} – ${esc(x.theirs)}` : x.done ? '' : 'à jouer'}</span>
+            <small class="muted mwhere">${esc(x.t.name)} · ${esc(x.title)}</small>
+          </a>`).join('') || '<p class="empty">Aucun match joué pour l\'instant.</p>'}
+      </div>
+    </section>
+    ${h2h.length ? `<section>
+      <h2>Face-à-face</h2>
+      <div class="tlist">
+        ${h2h.map(([uid, r]) => `
+          <a href="#/profil/${esc(uid)}" class="tline h2h">
+            <span class="mopp">${avatar(who(uid), 'av sm')} <span>${uname(who(uid))}</span></span>
+            <span class="h2h-bar"><i style="width:${Math.round(100 * r.w / (r.w + r.l))}%"></i></span>
+            <b class="${r.w > r.l ? 'up' : r.w < r.l ? 'down' : ''}">${r.w} – ${r.l}</b>
+          </a>`).join('')}
+      </div>
+    </section>` : ''}
     <section>
       <h2>Tournois</h2>
       <div class="tlist">

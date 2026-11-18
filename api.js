@@ -66,7 +66,7 @@ async function supabaseApi() {
     getProfile: async id => ok(await sb.from('wuhu_profiles').select(PROFILE_COLS).eq('id', id).maybeSingle()),
     async userStats(id) {
       const parts = ok(await sb.from('wuhu_participants')
-        .select('tournament:wuhu_tournaments(id, name, game, status, winner_id, created_at)').eq('user_id', id));
+        .select('tournament:wuhu_tournaments(id, name, game, status, winner_id, created_at, bracket, format, competition_id)').eq('user_id', id));
       return parts.map(p => p.tournament).filter(Boolean);
     },
 
