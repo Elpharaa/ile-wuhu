@@ -744,3 +744,84 @@ body.with-dock footer { margin-bottom: 96px; }
   #dock a { font-size: .68rem; }
 }
 @media (prefers-reduced-motion: reduce) { #dock a.pop .dk-ic { animation: none; } }
+
+/* Les fenêtres passent au-dessus des barres */
+.modal { z-index: 90; }
+#toast { z-index: 95; }
+
+/* =====================================================================
+   Fiche de match : arène sous l'orage
+   ===================================================================== */
+.match.clickable { cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.match.clickable:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(20, 60, 100, .2); }
+.modal-box.match-sheet { position: relative; overflow: hidden; width: min(600px, 100%); padding: 22px 18px 20px; color: #fff;
+  background: radial-gradient(ellipse at 50% 120%, #3d2a6b 0%, transparent 60%), linear-gradient(180deg, #141a33 0%, #22264a 55%, #2c2350 100%);
+  border: 1px solid rgba(160, 180, 255, .25); box-shadow: 0 25px 70px rgba(5, 5, 30, .6), inset 0 0 60px rgba(120, 140, 255, .12);
+  animation: ms-in .35s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes ms-in { from { opacity: 0; transform: scale(.85) rotate(-1deg); } }
+.match-sheet > :not(.ms-storm) { position: relative; z-index: 2; }
+.ms-storm { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.ms-flash { position: absolute; inset: 0; background: #dfe8ff; opacity: 0; animation: ms-flash 4.2s infinite; }
+@keyframes ms-flash { 0%, 6%, 9%, 52%, 100% { opacity: 0; } 7% { opacity: .55; } 8% { opacity: .15; } 50% { opacity: 0; } 51% { opacity: .35; } }
+.ms-rain { position: absolute; inset: -40px; opacity: .22;
+  background: repeating-linear-gradient(105deg, transparent 0 14px, rgba(200, 215, 255, .5) 14px 15px, transparent 15px 31px);
+  animation: ms-rain .5s linear infinite; }
+@keyframes ms-rain { to { transform: translate(-12px, 40px); } }
+.ms-bolt { position: absolute; top: -6px; width: 120px; height: 150px; overflow: visible; }
+.ms-bolt.l { left: -10px; } .ms-bolt.r { right: -10px; transform: scaleX(-1); }
+.ms-bolt path { fill: none; stroke: #f4f7ff; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; opacity: 0;
+  filter: drop-shadow(0 0 4px #9fc1ff) drop-shadow(0 0 10px #6f8dff); animation: ms-bolt 2.1s infinite; }
+@keyframes ms-bolt { 0%, 30%, 100% { opacity: 0; } 32% { opacity: 1; } 35% { opacity: .2; } 38% { opacity: 1; } 46% { opacity: 0; } }
+.ms-close { position: absolute !important; top: 10px; right: 12px; width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(255, 255, 255, .14); color: #fff; font-size: 1rem; z-index: 3 !important; }
+.ms-close:hover { background: rgba(255, 255, 255, .28); }
+.ms-head { text-align: center; margin-bottom: 14px; }
+.ms-round { display: inline-block; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: .8rem;
+  padding: 4px 14px; border-radius: 999px; background: linear-gradient(90deg, #ffcf3f, #ff8a3d); color: #3a1d00; box-shadow: 0 0 16px rgba(255, 190, 60, .55); }
+.ms-tour { display: block; margin-top: 6px; font-size: .85rem; color: #b9c3ef; }
+.ms-arena { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.ms-fighter { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; min-width: 0; transition: .3s; }
+.ms-fighter.side0 { animation: ms-l .5s cubic-bezier(.34, 1.56, .64, 1) both .1s; }
+.ms-fighter.side1 { animation: ms-r .5s cubic-bezier(.34, 1.56, .64, 1) both .1s; }
+@keyframes ms-l { from { opacity: 0; transform: translateX(-40px); } }
+@keyframes ms-r { from { opacity: 0; transform: translateX(40px); } }
+.ms-av { display: block; border-radius: 50%; }
+.ms-fighter .av.xl { width: 104px; height: 104px; border: 4px solid #fff; box-shadow: 0 0 0 4px rgba(130, 160, 255, .45), 0 0 26px rgba(120, 150, 255, .6); }
+.ms-fighter.side0 .av.xl { box-shadow: 0 0 0 4px rgba(80, 190, 255, .6), 0 0 26px rgba(60, 170, 255, .7); }
+.ms-fighter.side1 .av.xl { box-shadow: 0 0 0 4px rgba(255, 110, 120, .6), 0 0 26px rgba(255, 90, 110, .7); }
+.ms-av.empty { width: 104px; height: 104px; display: grid; place-items: center; font-size: 2.4rem; font-weight: 800; color: #8d97c7;
+  border: 3px dashed rgba(160, 175, 230, .5); border-radius: 50%; }
+.ms-name { font-weight: 800; font-size: 1.05rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: rgba(255, 255, 255, .92); color: #23384d; padding: 3px 12px; border-radius: 999px; }
+.ms-name.muted { background: rgba(255, 255, 255, .12); color: #b9c3ef; }
+.ms-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.ms-roles .role-pill, .ms-roles > * { font-size: .7rem !important; }
+.ms-fighter.lose { opacity: .55; filter: grayscale(.6); }
+.ms-fighter.win .av.xl { box-shadow: 0 0 0 4px #ffd84d, 0 0 34px rgba(255, 210, 70, .9); animation: ms-glow 1.6s ease-in-out infinite; }
+@keyframes ms-glow { 50% { box-shadow: 0 0 0 6px #ffe680, 0 0 46px rgba(255, 220, 90, 1); } }
+.ms-crown { font-weight: 800; font-size: .85rem; color: #ffd84d; text-shadow: 0 0 10px rgba(255, 200, 60, .8); }
+.ms-mid { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ms-vs { font-size: 2.6rem; font-weight: 900; font-style: italic; letter-spacing: -.04em; line-height: 1;
+  background: linear-gradient(180deg, #fff6b0, #ffb22e 55%, #ff6a1f); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 8px rgba(255, 160, 40, .8)) drop-shadow(0 2px 0 #7a2b00); animation: ms-vs 2.1s infinite; }
+@keyframes ms-vs { 0%, 30%, 46%, 100% { transform: scale(1) rotate(-4deg); } 33% { transform: scale(1.18) rotate(3deg); } 38% { transform: scale(1.08) rotate(-6deg); } }
+.ms-score { display: flex; align-items: center; gap: 8px; font-size: 2.2rem; font-weight: 900; }
+.ms-score b { min-width: 1.2em; text-align: center; color: #c9d2f5; }
+.ms-score b.hi { color: #ffd84d; text-shadow: 0 0 14px rgba(255, 210, 70, .9); }
+.ms-score span { color: #7f89b8; }
+.ms-status { width: fit-content; margin: 16px auto 0; padding: 6px 16px; border-radius: 999px; font-weight: 800; font-size: .9rem;
+  background: rgba(255, 255, 255, .12); color: #dfe5ff; }
+.ms-status.live { background: rgba(255, 216, 77, .18); color: #ffe27a; box-shadow: 0 0 0 1px rgba(255, 216, 77, .5); }
+.ms-status.done { background: rgba(110, 230, 150, .16); color: #9ff0bd; }
+.ms-by { text-align: center; font-size: .82rem; color: #b9c3ef; margin: 8px 0 0; }
+.match-sheet .actions { margin-top: 14px; }
+@media (max-width: 480px) {
+  .ms-fighter .av.xl, .ms-av.empty { width: 78px; height: 78px; }
+  .ms-vs { font-size: 2rem; } .ms-score { font-size: 1.7rem; }
+  .ms-name { font-size: .9rem; padding: 2px 8px; }
+  .ms-bolt { width: 80px; height: 110px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ms-flash, .ms-rain, .ms-bolt path, .ms-vs, .ms-fighter.win .av.xl { animation: none; }
+  .ms-bolt path { opacity: .6; }
+}

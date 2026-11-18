@@ -166,8 +166,10 @@ async function safe(fn) {
 
 // ---------- Fenêtre modale ----------
 const modal = document.getElementById('modal');
-function openModal(html) {
-  modal.querySelector('.modal-box').innerHTML = html;
+function openModal(html, cls = '') {
+  const mb = modal.querySelector('.modal-box');
+  mb.className = 'modal-box' + (cls ? ' ' + cls : '');
+  mb.innerHTML = html;
   modal.classList.remove('hidden');
   return modal.querySelector('.modal-box');
 }
@@ -978,13 +980,15 @@ async function pageTournament(id) {
 
   // Les admins peuvent entrer (ou corriger, même après la fin) un score ;
   // les deux joueurs d'un match peuvent déclarer leur résultat (une seule fois)
+  // Clic sur n'importe quel match : fiche du match (score, adversaires) ;
+  // depuis la fiche, ceux qui en ont le droit peuvent renseigner le score
   if (t.bracket) {
-    app.querySelectorAll('#real-bracket .match.playable').forEach(el => {
+    app.querySelectorAll('#real-bracket .match:not(.ghost)').forEach(el => {
       const s = res.state[el.dataset.mid];
-      if (!canReport(s)) return;
-      el.classList.add('editable');
-      if (!me.is_admin) el.classList.add('mine');
-      el.addEventListener('click', () => scoreDialog(t, s, people, reload, !me.is_admin));
+      if (!s || !s.players.some(Boolean)) return;
+      el.classList.add('clickable');
+      if (canReport(s)) { el.classList.add('editable'); if (!me.is_admin) el.classList.add('mine'); }
+      el.addEventListener('click', () => matchSheet(t, s, people, reload, canReport(s) ? (me.is_admin ? 'admin' : 'player') : null));
     });
   }
   // Tournoi terminé par un joueur : l'admin qui passe distribue les gains
@@ -1032,6 +1036,50 @@ function wireSwap(root, onSwap) {
       if (a !== n) onSwap(a, n);
     });
   });
+}
+
+// ---------- Fiche d'un match (style combat sous l'orage) ----------
+const BOLTS = [
+  'M30 0 L18 34 L30 34 L14 80',
+  'M70 0 L82 30 L70 32 L88 76',
+  'M50 0 L42 22 L56 26 L44 54 L58 60 L48 90',
+];
+function matchSheet(t, s, people, reload, canEdit) {
+  const m = (t.bracket.matches || []).find(x => x.id === s.id) || { b: 'W', r: 1 };
+  const title = roundTitle(t.bracket, m.b, m.r);
+  const who = i => s.players[i] ? people.get(s.players[i]) || { username: '?' } : null;
+  const sc = s.result?.s;
+  const by = s.result?.by ? people.get(s.result.by) : null;
+  const fighter = i => {
+    const p = who(i);
+    const st = !s.done || s.bye ? '' : s.winner === s.players[i] ? 'win' : 'lose';
+    return `<div class="ms-fighter ${st} side${i}">
+      ${p ? `<a href="#/profil/${esc(s.players[i])}" class="ms-av">${avatar(p, 'av xl')}</a>
+             <div class="ms-name">${uname(p)}</div>
+             <div class="ms-roles">${rolesOf(p).slice(0, 2).map(rolePill).join('')}</div>`
+          : `<div class="ms-av empty">?</div><div class="ms-name muted">${s.deadSlot?.[i] ? 'Exempt' : 'En attente…'}</div>`}
+      ${st === 'win' ? `<div class="ms-crown">${I.trophee} Vainqueur</div>` : ''}
+    </div>`;
+  };
+  const status = s.bye ? 'Qualifié d\'office' : s.done ? 'Match terminé' : s.playable ? 'Combat à venir' : 'En attente des adversaires';
+  const bolts = (side) => `<svg class="ms-bolt ${side}" viewBox="0 0 100 90" aria-hidden="true">${BOLTS.map((d, k) =>
+    `<path d="${d}" style="animation-delay:${(k * .7 + (side === 'r' ? .35 : 0)).toFixed(2)}s"/>`).join('')}</svg>`;
+  const box = openModal(`
+    <div class="ms-storm" aria-hidden="true"><i class="ms-flash"></i><i class="ms-rain"></i>${bolts('l')}${bolts('r')}</div>
+    <button class="ms-close" data-close aria-label="Fermer">✕</button>
+    <div class="ms-head"><span class="ms-round">${esc(title)}</span><span class="ms-tour">${esc(t.name)}</span></div>
+    <div class="ms-arena">
+      ${fighter(0)}
+      <div class="ms-mid">
+        ${sc ? `<div class="ms-score"><b class="${s.winner === s.players[0] ? 'hi' : ''}">${esc(sc[0])}</b><span>–</span><b class="${s.winner === s.players[1] ? 'hi' : ''}">${esc(sc[1])}</b></div>` : ''}
+        <div class="ms-vs">VS</div>
+      </div>
+      ${fighter(1)}
+    </div>
+    <div class="ms-status ${s.done ? 'done' : s.playable ? 'live' : ''}">${status}</div>
+    ${by ? `<p class="ms-by">Résultat déclaré par ${uname(by)}</p>` : ''}
+    ${canEdit && s.playable ? `<div class="actions center"><button class="btn primary" id="ms-edit">${s.done ? '✏️ Corriger le score' : '⚡ Renseigner le score'}</button></div>` : ''}`, 'match-sheet');
+  $('#ms-edit', box)?.addEventListener('click', () => scoreDialog(t, s, people, reload, canEdit === 'player'));
 }
 
 function scoreDialog(t, s, people, reload, asPlayer = false) {
@@ -1316,13 +1364,13 @@ async function pageLeaderboard() {
           </a>` : '<div></div>').join('')}
       </div>
       <div class="lb-table">
-        ${sorted.map((m, i) => `
+        ${sorted.slice(3).map((m, i) => `
           <a href="#/profil/${esc(m.id)}" class="lb-row ${m.id === state.me.id ? 'me-row' : ''}">
-            <span class="lb-rank">${i + 1}</span>
+            <span class="lb-rank">${i + 4}</span>
             ${avatar(m, 'av sm')}
             <span class="lb-name">${uname(m)}</span>
             ${pts(m.points)} ${rubis(m.rubis)}
-          </a>`).join('') || '<p class="empty">Personne pour l\'instant.</p>'}
+          </a>`).join('') || (sorted.length ? '' : '<p class="empty">Personne pour l\'instant.</p>')}
       </div>`;
   };
   app.innerHTML = `
