@@ -1089,3 +1089,12 @@ body.with-dock footer { margin-bottom: 96px; }
 .ach-badge { width: 44px; height: 44px; display: grid; place-items: center; font-size: 1.4rem; border-radius: 14px; background: rgba(255,255,255,.9); filter: grayscale(1); opacity: .35; }
 .ach-badge.on { filter: none; opacity: 1; box-shadow: 0 2px 8px rgba(15,80,120,.15); }
 @media (max-width: 520px) { .dday small { font-size: .55rem; } .dday { padding: 6px 0; } }
+
+/* Pastille de notification (succès à récupérer) */
+.me { position: relative; }
+.notif { position: absolute; top: -4px; left: -4px; z-index: 3; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: #ff3b3b; color: #fff;
+  font-size: .72rem; font-weight: 900; line-height: 20px; text-align: center; box-shadow: 0 0 0 2px #fff; animation: notif-pop .4s cubic-bezier(.3,1.6,.5,1); }
+.notif.in { position: static; display: inline-block; margin-left: auto; box-shadow: none; }
+.me-menu a:has(.notif.in) { display: flex; align-items: center; gap: 6px; }
+@keyframes notif-pop { from { transform: scale(0); } }
+.me .notif { display: block !important; }

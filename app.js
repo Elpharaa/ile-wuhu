@@ -297,10 +297,10 @@ function renderNav() {
   $('#user').innerHTML = me
     ? `${me.in_guild ? `<a href="#/boutique" class="wallet">${rubis(bal(me.id).rubis)}</a>` : ''}
        <div class="me-wrap">
-         <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
+         <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${state.achCount ? `<span class="notif">${state.achCount}</span>` : ''}${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
          <div class="me-menu" id="me-menu" hidden>
            <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
-           <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès</a>
+           <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès${state.achCount ? `<span class="notif in">${state.achCount}</span>` : ''}</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
            <a href="#/roles" class="${sub('#/roles')}">🎖️ Rôles</a>
            <a href="#/parametres" class="${sub('#/parametres')}">⚙️ Paramètres</a>` : ''}
@@ -1566,7 +1566,7 @@ async function drawDaily() {
     const r = await api.claimDaily();
     toast(`+${r.amount} rubis ! Jour ${r.streak} 🔥`);
     burst(e.target);
-    await loadBalances(); renderNav(); drawDaily();
+    await loadBalances(); renderNav(); drawDaily(); refreshAchCount();
     const hm = $('.hero-money'); if (hm) hm.innerHTML = `${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}`;
   }));
 }
@@ -1584,6 +1584,13 @@ function burst(el) {
 // ---------- Succès ----------
 const achGoal = (a, st) => a.goal || (a.metric === 'collection' ? st.collection_total || 0 : 0);
 const achReady = (list, done, st) => list.filter(a => !done.has(a.id) && (st[a.metric] || 0) >= achGoal(a, st));
+// Pastille sur l'avatar : nombre de succès prêts à récupérer
+async function refreshAchCount() {
+  if (!state.me?.in_guild || !api.listAchievements) return;
+  const [list, done, st] = await Promise.all([safe(() => api.listAchievements()), safe(() => api.achievementsDone(state.me.id)), safe(() => api.myStats())]);
+  const n = achReady(list || [], new Set((done || []).map(x => x.achievement_id)), st || {}).length;
+  if (n !== state.achCount) { state.achCount = n; renderNav(); }
+}
 async function pageAchievements() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   const me = state.me;
@@ -1608,13 +1615,13 @@ async function pageAchievements() {
   const claim = async id => { const r = await api.claimAchievement(id); return r.reward; };
   app.querySelectorAll('[data-ach]').forEach(b => b.addEventListener('click', () => safe(async () => {
     b.disabled = true; const n = await claim(b.dataset.ach); burst(b); toast(`Succès débloqué ! +${n} rubis`);
-    await loadBalances(); renderNav(); setTimeout(pageAchievements, 500);
+    await loadBalances(); renderNav(); refreshAchCount(); setTimeout(pageAchievements, 500);
   })));
   $('#ach-all')?.addEventListener('click', e => safe(async () => {
     e.target.disabled = true; let n = 0;
     for (const id of ready) n += await claim(id);
     burst(e.target); toast(`${ready.size} succès récupérés ! +${n} rubis`);
-    await loadBalances(); renderNav(); setTimeout(pageAchievements, 500);
+    await loadBalances(); renderNav(); refreshAchCount(); setTimeout(pageAchievements, 500);
   }));
 }
 
@@ -1747,7 +1754,7 @@ async function openChestDialog(c) {
   try { res = await api.openChest(c.id); }
   catch (e) { closeModal(); toast(e.message || 'Erreur', 'err'); return; }
   await new Promise(r => setTimeout(r, 1400));
-  await loadBalances(); renderNav();
+  await loadBalances(); renderNav(); refreshAchCount();
   const it = res.kind === 'pseudo'
     ? { ...(state.colors.get(res.id) || {}), id: res.id, name: res.name, effect: res.effect, kind: 'pseudo', rarity: res.rarity }
     : { ...(state.items.get(res.id) || {}), ...res };
@@ -1996,6 +2003,7 @@ async function pageSettings(tab = 'fond') {
   const [me] = await Promise.all([safe(() => api.init()), loadTheme()]);
   state.me = me;
   if (state.me?.in_guild) await Promise.all([loadRoles(), loadColors(), loadBalances()]);
+  refreshAchCount();
   if (state.me?.is_admin) settlePending();
   window.addEventListener('hashchange', route);
   route();
