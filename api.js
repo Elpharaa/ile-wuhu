@@ -16,7 +16,7 @@ async function supabaseApi() {
     auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true },
   });
   const ok = ({ data, error }) => { if (error) throw error; return data; };
-  const PROFILE_COLS = 'id, username, avatar_url, roles, in_guild, is_admin, name_color, is_guest';
+  const PROFILE_COLS = 'id, username, avatar_url, roles, in_guild, is_admin, name_color, is_guest, item_frame, item_banner, item_title, item_victory';
 
   return {
     async init() {
@@ -120,6 +120,13 @@ async function supabaseApi() {
     listOwned: async uid => (ok(await sb.from('wuhu_owned_colors').select('color_id').eq('user_id', uid))).map(r => r.color_id),
     buyColor: async id => ok(await sb.rpc('wuhu_buy_color', { p_color: id })),
     equipColor: async id => ok(await sb.rpc('wuhu_equip_color', { p_color: id })),
+    // ----- Objets (cadres, bannières, titres, victoires) et coffres -----
+    listItems: async () => ok(await sb.from('wuhu_items').select('*').order('position')),
+    listOwnedItems: async uid => (ok(await sb.from('wuhu_owned_items').select('item_id').eq('user_id', uid))).map(r => r.item_id),
+    listChests: async () => ok(await sb.from('wuhu_chests').select('*').order('position')),
+    buyItem: async id => ok(await sb.rpc('wuhu_buy_item', { p_item: id })),
+    equipItem: async (kind, id) => ok(await sb.rpc('wuhu_equip_item', { p_kind: kind, p_item: id })),
+    openChest: async id => ok(await sb.rpc('wuhu_open_chest', { p_chest: id })),
 
     subscribe(tid, cb) {
       const ch = sb.channel('t-' + tid)
@@ -150,6 +157,7 @@ function demoApi() {
   const members = names.map((n, i) => ({
     id: 'u' + i, username: n, avatar_url: `https://cdn.discordapp.com/embed/avatars/${i % 6}.png`,
     roles: roleSets[i], in_guild: true, is_admin: i === 0, name_color: i === 1 ? 'fx-feu' : i === 2 ? 'fx-musique' : null,
+    ...(i === 1 ? { item_frame: 'fr-feu', item_title: 'ti-feu', item_victory: 'vi-feu', item_banner: 'bn-feu' } : {}),
   }));
   const colors = [
     ['vague', 'Vague de Wuhu', 40], ['led', 'Panneau LED', 60], ['glace', 'Glace', 80], ['feu', 'En feu', 80],
@@ -157,6 +165,32 @@ function demoApi() {
     ['glitch', 'Glitch', 160], ['fantome', 'Fantôme', 180], ['galaxie', 'Galaxie', 220], ['or', 'Or scintillant', 300],
   ].map(([effect, name, price], position) => ({ id: 'fx-' + effect, name, style: null, effect, price, position }));
   let owned = [['u1', 'fx-feu'], ['u2', 'fx-musique'], ['u0', 'fx-led']];
+  const PRICE = { commun: 50, rare: 100, epique: 180, legendaire: 350 };
+  const items = [
+    ['fr-vague', 'frame', 'Cadre Vague', 'vague', 'commun'], ['fr-glace', 'frame', 'Cadre Givré', 'glace', 'commun'],
+    ['fr-feu', 'frame', 'Cadre de Flammes', 'feu', 'rare'], ['fr-coeurs', 'frame', 'Cadre Cœurs', 'coeurs', 'rare'],
+    ['fr-neon', 'frame', 'Cadre Néon', 'neon', 'rare'], ['fr-eclair', 'frame', 'Cadre Électrique', 'eclair', 'epique'],
+    ['fr-galaxie', 'frame', 'Cadre Galaxie', 'galaxie', 'epique'], ['fr-or', 'frame', 'Cadre en Or', 'or', 'legendaire'],
+    ['bn-vague', 'banner', 'Bannière Lagon', 'vague', 'commun'], ['bn-glace', 'banner', 'Bannière Banquise', 'glace', 'commun'],
+    ['bn-feu', 'banner', 'Bannière Volcan', 'feu', 'rare'], ['bn-neon', 'banner', 'Bannière Néon', 'neon', 'rare'],
+    ['bn-coeurs', 'banner', 'Bannière Bonbon', 'coeurs', 'rare'], ['bn-galaxie', 'banner', 'Bannière Galaxie', 'galaxie', 'epique'],
+    ['bn-or', 'banner', 'Bannière Trésor', 'or', 'legendaire'],
+    ['ti-nouveau', 'title', 'Petit nouveau', 'vague', 'commun'], ['ti-pecheur', 'title', 'Pêcheur de Wuhu', 'glace', 'commun'],
+    ['ti-rock', 'title', 'Rockstar', 'musique', 'rare'], ['ti-coeur', 'title', "Cœur d'artichaut", 'coeurs', 'rare'],
+    ['ti-feu', 'title', 'Âme en feu', 'feu', 'rare'], ['ti-glitch', 'title', 'Bug du système', 'glitch', 'epique'],
+    ['ti-fantome', 'title', "Fantôme de l'île", 'fantome', 'epique'], ['ti-etoile', 'title', 'Étoile filante', 'galaxie', 'epique'],
+    ['ti-legende', 'title', 'Légende de Wuhu', 'or', 'legendaire'],
+    ['vi-confettis', 'victory', 'Confettis', 'confettis', 'commun'], ['vi-coeurs', 'victory', 'Pluie de cœurs', 'coeurs', 'rare'],
+    ['vi-feu', 'victory', "Feu d'artifice", 'feu', 'rare'], ['vi-eclair', 'victory', 'Foudre', 'eclair', 'epique'],
+    ['vi-galaxie', 'victory', "Pluie d'étoiles", 'galaxie', 'epique'], ['vi-or', 'victory', "Pluie d'or", 'or', 'legendaire'],
+  ].map(([id, kind, name, effect, rarity], position) => ({ id, kind, name, effect, rarity, price: PRICE[rarity], in_shop: rarity !== 'legendaire', position }));
+  const chests = [
+    { id: 'bois', name: 'Coffre en bois', price: 40, w_commun: 70, w_rare: 25, w_epique: 5, w_legendaire: 0 },
+    { id: 'argent', name: "Coffre d'argent", price: 100, w_commun: 35, w_rare: 45, w_epique: 17, w_legendaire: 3 },
+    { id: 'or', name: 'Coffre en or', price: 220, w_commun: 0, w_rare: 40, w_epique: 42, w_legendaire: 18 },
+  ];
+  let ownedItems = [['u1', 'fr-feu'], ['u1', 'ti-feu'], ['u1', 'vi-feu'], ['u1', 'bn-feu']];
+  const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
   let compRegs = [];
@@ -290,6 +324,31 @@ function demoApi() {
       owned.push([me.id, id]); me.name_color = id;
     },
     async equipColor(id) { me.name_color = id; },
+    async listItems() { return clone(items); },
+    async listOwnedItems(uid) { return ownedItems.filter(o => o[0] === uid).map(o => o[1]); },
+    async listChests() { return clone(chests); },
+    async buyItem(id) {
+      const it = items.find(x => x.id === id);
+      const bal = ledger.filter(l => l.user_id === me.id).reduce((a, l) => a + l.rubis, 0);
+      if (bal < it.price) throw new Error('Pas assez de rubis');
+      addL(me.id, -it.price, 0, 'Achat : ' + it.name); ownedItems.push([me.id, id]); me[SLOT[it.kind]] = id;
+    },
+    async equipItem(kind, id) { me[SLOT[kind]] = id; },
+    async openChest(cid) {
+      const c = chests.find(x => x.id === cid);
+      const bal = ledger.filter(l => l.user_id === me.id).reduce((a, l) => a + l.rubis, 0);
+      if (bal < c.price) throw new Error('Pas assez de rubis');
+      const rar = (r => r < c.w_commun ? 'commun' : r < c.w_commun + c.w_rare ? 'rare' : r < c.w_commun + c.w_rare + c.w_epique ? 'epique' : 'legendaire')(Math.random() * 100);
+      const cr = p => p <= 80 ? 'commun' : p <= 140 ? 'rare' : p <= 220 ? 'epique' : 'legendaire';
+      const pool = [...items.filter(i => i.rarity === rar), ...colors.filter(x => cr(x.price) === rar).map(x => ({ ...x, kind: 'pseudo' }))];
+      const it = pool[Math.floor(Math.random() * pool.length)];
+      addL(me.id, -c.price, 0, 'Ouverture : ' + c.name);
+      const list = it.kind === 'pseudo' ? owned : ownedItems;
+      const dup = list.some(o => o[0] === me.id && o[1] === it.id);
+      const refund = dup ? { commun: 10, rare: 25, epique: 50, legendaire: 100 }[rar] : 0;
+      if (dup) addL(me.id, refund, 0, 'Doublon recyclé : ' + it.name); else list.push([me.id, it.id]);
+      return { kind: it.kind, id: it.id, name: it.name, effect: it.effect, rarity: rar, duplicate: dup, refund };
+    },
     subscribe(tid, cb) { subs.add(cb); return () => subs.delete(cb); },
   };
 }

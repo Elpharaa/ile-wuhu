@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js';
 
 const app = document.getElementById('app');
-const state = { me: null, roles: new Map(), colors: new Map(), balances: new Map(), theme: {}, icons: {} };
+const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
 let unsubscribe = null;
 
 // ---------- Petits outils ----------
@@ -14,7 +14,16 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const $ = (sel, root = document) => root.querySelector(sel);
 const DEFAULT_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';
 const defAvatar = () => state.icons.avatar || DEFAULT_AVATAR;
-const avatar = (p, cls = 'av') => `<img class="${cls}" src="${esc(p?.avatar_url || defAvatar())}" alt="" loading="lazy">`;
+const avatarImg = (p, cls = 'av') => `<img class="${cls}" src="${esc(p?.avatar_url || defAvatar())}" alt="" loading="lazy">`;
+// Avatar, avec le cadre acheté en boutique s'il y en a un
+const avatar = (p, cls = 'av') => {
+  const fr = p?.item_frame && state.items.get(p.item_frame);
+  return fr ? frameWrap(fr.effect, cls, avatarImg(p, cls)) : avatarImg(p, cls);
+};
+const frameWrap = (effect, cls, inner) => {
+  const size = (String(cls).match(/\b(xs|sm|md|lg|xl)\b/) || [, 'n'])[1];
+  return `<span class="afr afr-${esc(effect)} s-${size}">${inner}</span>`;
+};
 const rolePill = r => `<span class="role" style="--rc:${esc(r.color || '#99aab5')}" title="${esc(r.name)}"><i></i><span class="rn">${esc(r.name)}</span></span>`;
 // Rôles du membre (identifiants Discord → noms définis par les admins)
 const rolesOf = p => (p?.roles || []).map(id => state.roles.get(id)).filter(r => r && !r.hidden)
@@ -75,8 +84,24 @@ function uname(p) {
 }
 const bal = uid => state.balances.get(uid) || { rubis: 0, points: 0 };
 async function loadColors() {
-  const list = await safe(() => api.listColors()) || [];
-  state.colors = new Map(list.map(c => [c.id, c]));
+  const [list, items] = await Promise.all([safe(() => api.listColors()), safe(() => api.listItems?.())]);
+  state.colors = new Map((list || []).map(c => [c.id, c]));
+  state.items = new Map((items || []).map(c => [c.id, c]));
+}
+// Titre équipé (petit texte animé sous le pseudo)
+function wtitle(p, effectOverride) {
+  const it = p?.item_title && state.items.get(p.item_title);
+  return it ? `<span class="wtitle">${fxName(it.name, it.effect)}</span>` : '';
+}
+// Animation de victoire : des particules qui tombent / montent
+const VIC = { confettis: '', coeurs: '💖', feu: '', eclair: '⚡', galaxie: '⭐', or: '🪙' };
+function victoryFx(effect, n = 22) {
+  if (!effect) return '';
+  const ch = VIC[effect] ?? '';
+  return `<div class="vic vic-${esc(effect)}" aria-hidden="true">${Array.from({ length: n }, (_, i) => {
+    const x = (i * 37 + 11) % 100, d = ((i * 53) % 100) / 40, dur = 1.8 + ((i * 29) % 10) / 6, h = (i * 47) % 360, sz = .8 + ((i * 17) % 7) / 10;
+    return `<i style="--x:${x}%;--d:${d.toFixed(2)}s;--t:${dur.toFixed(2)}s;--h:${h};--s:${sz.toFixed(2)}">${ch}</i>`;
+  }).join('')}</div>`;
 }
 async function loadBalances() {
   const list = await safe(() => api.balances()) || [];
@@ -1117,10 +1142,11 @@ function matchSheet(t, s, people, reload, canEdit) {
     const st = !s.done || s.bye ? '' : s.winner === s.players[i] ? 'win' : 'lose';
     return `<div class="ms-fighter ${st} side${i}">
       ${p ? `<a href="#/profil/${esc(s.players[i])}" class="ms-av">${avatar(p, 'av xl')}</a>
-             <div class="ms-name">${uname(p)}</div>
+             <div class="ms-name">${uname(p)}</div>${wtitle(p)}
              <div class="ms-roles">${rolesOf(p).slice(0, 2).map(rolePill).join('')}</div>`
           : `<div class="ms-av empty">?</div><div class="ms-name muted">${s.deadSlot?.[i] ? 'Exempt' : 'En attente…'}</div>`}
       ${st === 'win' ? `<div class="ms-crown">${I.trophee} Vainqueur</div>` : ''}
+      ${st === 'win' && p?.item_victory && state.items.get(p.item_victory) ? victoryFx(state.items.get(p.item_victory).effect) : ''}
     </div>`;
   };
   const status = s.bye ? 'Qualifié d\'office' : s.done ? 'Match terminé' : s.playable ? 'Combat à venir' : 'En attente des adversaires';
@@ -1258,7 +1284,7 @@ async function pageMembers() {
     <div class="grid members" id="mlist"></div>`;
   const draw = q => {
     $('#mlist').innerHTML = list.filter(p => !q || p.username?.toLowerCase().includes(q) || rolesOf(p).some(r => r.name.toLowerCase().includes(q)))
-      .map(p => `<a class="card member" href="#/profil/${esc(p.id)}">${avatar(p, 'av lg')}<strong>${uname(p)}</strong>${p.is_guest ? '<span class="guest-tag">Invité · sans compte</span>' : topRole(p) ? rolePill(topRole(p)) : ''}<span class="member-money">${pts(bal(p.id).points)} ${rubis(bal(p.id).rubis)}</span>${p.is_guest && state.me.is_admin ? `<button class="x" data-delguest="${esc(p.id)}" title="Supprimer cet invité">✕</button>` : ''}</a>`)
+      .map(p => `<a class="card member" href="#/profil/${esc(p.id)}">${avatar(p, 'av lg')}<strong>${uname(p)}</strong>${wtitle(p)}${p.is_guest ? '<span class="guest-tag">Invité · sans compte</span>' : topRole(p) ? rolePill(topRole(p)) : ''}<span class="member-money">${pts(bal(p.id).points)} ${rubis(bal(p.id).rubis)}</span>${p.is_guest && state.me.is_admin ? `<button class="x" data-delguest="${esc(p.id)}" title="Supprimer cet invité">✕</button>` : ''}</a>`)
       .join('') || '<p class="empty">Aucun membre trouvé.</p>';
   };
   draw('');
@@ -1349,10 +1375,11 @@ async function pageProfile(id) {
   const color = topRole(p)?.color || '#2fa4e7';
   app.innerHTML = `
     <div class="card profile" style="--pc:${esc(color)}">
-      <div class="profile-banner"></div>
+      <div class="profile-banner ${p.item_banner && state.items.get(p.item_banner) ? 'bn bn-' + esc(state.items.get(p.item_banner).effect) : ''}"></div>
       <div class="profile-body">
         ${avatar(p, 'av xl')}
         <h1>${uname(p)}</h1>
+        ${wtitle(p)}
         ${p.is_admin ? '<span class="pill-info">Organisateur de tournois</span>' : ''}
         <h3>Rôles sur le serveur</h3>
         <div class="roles">${rolesOf(p).map(rolePill).join('') || '<span class="muted">Aucun rôle</span>'}</div>
@@ -1501,75 +1528,160 @@ async function pageLeaderboard() {
 }
 
 // ---------- Boutique ----------
-async function pageShop() {
-  app.innerHTML = `<div class="loading">Chargement…</div>`;
+const RARITY = { commun: ['Commun', 'r-commun'], rare: ['Rare', 'r-rare'], epique: ['Épique', 'r-epique'], legendaire: ['Légendaire', 'r-legendaire'] };
+const colorRarity = price => price <= 80 ? 'commun' : price <= 140 ? 'rare' : price <= 220 ? 'epique' : 'legendaire';
+const rarityTag = r => `<span class="rar ${RARITY[r]?.[1] || ''}">${RARITY[r]?.[0] || ''}</span>`;
+const SHOP_TABS = [
+  ['coffres', '🎁', 'Coffres'], ['pseudo', '✨', 'Pseudos'], ['frame', '🖼️', 'Cadres'],
+  ['banner', '🏞️', 'Bannières'], ['title', '🏷️', 'Titres'], ['victory', '🎉', 'Victoires'],
+];
+const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
+const KIND_LABEL = { pseudo: 'Effet de pseudo', frame: "Cadre d'avatar", banner: 'Bannière de profil', title: 'Titre', victory: 'Effet de victoire' };
+
+// Aperçu d'un objet, porté par le joueur p
+function itemPreview(it, p) {
+  switch (it.kind) {
+    case 'pseudo': return `<div class="ip ip-pseudo fx-stage">${uname({ ...p, name_color: it.id })}</div>`;
+    case 'frame': return `<div class="ip ip-frame">${frameWrap(it.effect, 'av lg', avatarImg(p, 'av lg'))}</div>`;
+    case 'banner': return `<div class="ip ip-banner"><div class="mini-banner bn bn-${esc(it.effect)}"></div>${avatar(p, 'av md')}</div>`;
+    case 'title': return `<div class="ip ip-title"><div>${uname(p)}</div><span class="wtitle">${fxName(it.name, it.effect)}</span></div>`;
+    case 'victory': return `<div class="ip ip-victory">${victoryFx(it.effect, 14)}<span class="ip-win">${I.trophee} Vainqueur</span></div>`;
+  }
+  return '';
+}
+const CHEST_COL = { bois: ['#b9773f', '#7a4a22', '#e0a86a'], argent: ['#c4d2e0', '#7f93a8', '#ffffff'], or: ['#ffcf3f', '#c48a00', '#fff3b0'] };
+const chestSvg = (id, open = false) => {
+  const [a, b, c] = CHEST_COL[id] || CHEST_COL.bois;
+  return `<svg class="chest-svg ${open ? 'open' : ''}" viewBox="0 0 120 100" aria-hidden="true">
+    <ellipse cx="60" cy="94" rx="44" ry="5" fill="rgba(0,0,0,.15)"/>
+    <rect x="14" y="46" width="92" height="44" rx="8" fill="${a}" stroke="${b}" stroke-width="4"/>
+    <rect x="14" y="58" width="92" height="6" fill="${b}" opacity=".5"/>
+    <g class="lid"><path d="M14 48 Q14 16 60 16 Q106 16 106 48 Z" fill="${a}" stroke="${b}" stroke-width="4"/>
+    <path d="M30 22 Q60 12 90 22" stroke="${c}" stroke-width="4" fill="none" stroke-linecap="round" opacity=".8"/></g>
+    <rect x="50" y="40" width="20" height="22" rx="4" fill="${c}" stroke="${b}" stroke-width="3"/>
+    <circle cx="60" cy="50" r="3" fill="${b}"/>
+  </svg>`;
+};
+
+async function pageShop(tab = state.shopTab || 'coffres') {
+  state.shopTab = tab;
+  if (!app.querySelector('.shop-page')) app.innerHTML = `<div class="loading">Chargement…</div>`;
   const me = state.me;
-  const [owned] = await Promise.all([safe(() => api.listOwned(me.id)), loadColors(), loadBalances()]);
-  const have = new Set(owned || []);
+  const [owned, ownedItems, chests] = await Promise.all([
+    safe(() => api.listOwned(me.id)), safe(() => api.listOwnedItems(me.id)), safe(() => api.listChests()), loadColors(), loadBalances()]);
+  const have = new Set([...(owned || []), ...(ownedItems || [])]);
   const money = bal(me.id).rubis;
-  app.innerHTML = `
-    <div class="page-head"><h1>Boutique</h1><div class="big-money">${rubis(money)}</div></div>
-    <p class="small">Des pseudos animés à acheter avec tes rubis. L'effet s'affiche partout sur le site : profil, arbres, classement…</p>
-    <div class="grid shop">
-      <div class="card color-card ${!me.name_color ? 'equipped' : ''}">
-        <div class="color-preview">${uname({ ...me, name_color: null })}</div>
-        <strong>Sans effet (couleur du rôle)</strong>
-        <span class="muted">Gratuit</span>
-        ${!me.name_color ? '<span class="pill-info">Équipé</span>' : '<button class="btn ghost sm" data-equip="">Équiper</button>'}
-      </div>
-      ${[...state.colors.values()].filter(c => c.effect).map(c => `
-      <div class="card color-card ${me.name_color === c.id ? 'equipped' : ''}">
-        <div class="color-preview fx-stage">${uname({ ...me, name_color: c.id })}</div>
-        <strong>${esc(c.name)}</strong>
-        ${rubis(c.price)}
-        <button class="btn ghost sm" data-preview="${esc(c.id)}">👀 Voir le rendu</button>
-        ${me.name_color === c.id ? '<span class="pill-info">Équipé</span>'
-          : have.has(c.id) ? `<button class="btn ghost sm" data-equip="${esc(c.id)}">Équiper</button>`
-          : `<button class="btn primary sm" data-buy="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Acheter</button>`}
-      </div>`).join('')}
+  const all = [
+    ...[...state.colors.values()].filter(c => c.effect).map(c => ({ ...c, kind: 'pseudo', rarity: colorRarity(c.price), in_shop: true })),
+    ...state.items.values(),
+  ];
+  const equipped = it => it.kind === 'pseudo' ? me.name_color === it.id : me[SLOT[it.kind]] === it.id;
+  const count = k => all.filter(i => i.kind === k && have.has(i.id)).length + ' / ' + all.filter(i => i.kind === k).length;
+
+  const itemCard = it => `
+    <div class="card item-card ${equipped(it) ? 'equipped' : ''} ${RARITY[it.rarity]?.[1]}">
+      ${itemPreview(it, me)}
+      <div class="ic-head"><strong>${esc(it.name)}</strong>${rarityTag(it.rarity)}</div>
+      ${equipped(it) ? `<span class="pill-info">Équipé</span><button class="btn ghost sm" data-unequip="${esc(it.kind)}">Retirer</button>`
+        : have.has(it.id) ? `<button class="btn ghost sm" data-equip="${esc(it.id)}">Équiper</button>`
+        : it.in_shop ? `${rubis(it.price)}<button class="btn primary sm" data-buy="${esc(it.id)}" ${money < it.price ? 'disabled' : ''}>Acheter</button>`
+        : '<span class="chest-only">🎁 Seulement dans les coffres</span>'}
     </div>`;
-  const buy = c => safe(async () => {
-    if (!confirm(`Acheter « ${c.name} » pour ${c.price} rubis ?`)) return;
-    await api.buyColor(c.id);
-    state.me.name_color = c.id;
-    closeModal(); toast('Nouvel effet équipé !'); await loadBalances(); renderNav(); pageShop();
+
+  const chestCard = c => {
+    const tot = c.w_commun + c.w_rare + c.w_epique + c.w_legendaire || 1;
+    const odds = ['commun', 'rare', 'epique', 'legendaire'].filter(r => c['w_' + r]).map(r =>
+      `<li class="${RARITY[r][1]}"><span>${RARITY[r][0]}</span><b>${Math.round(100 * c['w_' + r] / tot)}%</b></li>`).join('');
+    return `<div class="card chest-card chest-${esc(c.id)}">
+      <div class="chest-stage">${chestSvg(c.id)}</div>
+      <strong>${esc(c.name)}</strong>
+      <ul class="odds">${odds}</ul>
+      <button class="btn primary" data-chest="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Ouvrir · ${rubis(c.price)}</button>
+    </div>`;
+  };
+
+  const body = tab === 'coffres' ? `
+      <p class="small">Chaque coffre contient un objet au hasard : cadre, bannière, titre, effet de victoire ou effet de pseudo.
+      Les objets <b class="r-legendaire-txt">légendaires</b> ne s'obtiennent que dans les coffres. Un doublon est recyclé en rubis.</p>
+      <div class="grid chests">${(chests || []).map(chestCard).join('')}</div>`
+    : `${tab === 'pseudo' ? `<p class="small">L'effet s'affiche partout sur le site : profil, arbres, classement…</p>`
+        : tab === 'frame' ? `<p class="small">Un cadre animé autour de ta photo, partout sur le site.</p>`
+        : tab === 'banner' ? `<p class="small">Le décor en haut de ton profil.</p>`
+        : tab === 'title' ? `<p class="small">Un petit titre sous ton pseudo : profil, membres, fiches de match.</p>`
+        : `<p class="small">L'animation qui se déclenche sur la fiche du match quand tu gagnes.</p>`}
+      <div class="grid shop">
+        ${tab === 'pseudo' ? `<div class="card item-card ${!me.name_color ? 'equipped' : ''}">
+          <div class="ip ip-pseudo">${uname({ ...me, name_color: null })}</div>
+          <div class="ic-head"><strong>Sans effet</strong><span class="muted small">couleur du rôle</span></div>
+          ${!me.name_color ? '<span class="pill-info">Équipé</span>' : '<button class="btn ghost sm" data-unequip="pseudo">Équiper</button>'}
+        </div>` : ''}
+        ${all.filter(i => i.kind === tab).map(itemCard).join('')}
+      </div>`;
+
+  app.innerHTML = `<div class="shop-page">
+    <div class="page-head"><h1>Boutique</h1><div class="big-money">${rubis(money)}</div></div>
+    <nav class="shop-tabs">${SHOP_TABS.map(([k, ic, label]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}"><span>${ic}</span>${label}${k !== 'coffres' ? `<small>${count(k)}</small>` : ''}</button>`).join('')}</nav>
+    ${body}</div>`;
+
+  const byId = id => all.find(i => i.id === id);
+  const equip = (kind, id) => safe(async () => {
+    if (kind === 'pseudo') { await api.equipColor(id); me.name_color = id; }
+    else { await api.equipItem(kind, id); me[SLOT[kind]] = id; }
+    toast(id ? 'Équipé !' : 'Retiré'); renderNav(); pageShop(tab);
   });
-  app.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => buy(state.colors.get(b.dataset.buy))));
-  app.querySelectorAll('[data-preview]').forEach(b => b.addEventListener('click', () => {
-    const c = state.colors.get(b.dataset.preview);
-    const fake = { ...me, name_color: c.id };
-    const box = openModal(`
-      <h2>Aperçu : ${esc(c.name)}</h2>
-      <p class="small">Voici ton pseudo avec cet effet, à différents endroits du site.</p>
-      <div class="pv">
-        <div class="pv-label">Profil</div>
-        <div class="pv-profile">${avatar(me, 'av lg')}<div><div class="pv-big">${uname(fake)}</div><div class="roles">${rolesOf(me).slice(0, 2).map(rolePill).join('')}</div></div></div>
-        <div class="pv-label">Classement</div>
-        <div class="lb-row"><span class="lb-rank">1</span>${avatar(me, 'av sm')}<span class="lb-name">${uname(fake)}</span>${pts(bal(me.id).points)}</div>
-        <div class="pv-label">Arbre de tournoi</div>
-        <div class="match done pv-match">
-          <div class="mslot win">${avatar(me, 'av xs')}<span class="name">${uname(fake)}</span><span class="score">3</span></div>
-          <div class="mslot lose"><img class="av xs" src="${esc(defAvatar())}" alt=""><span class="name">Adversaire</span><span class="score">1</span></div>
-        </div>
-      </div>
-      <div class="actions">
-        <button class="btn ghost" data-close>Fermer</button>
-        ${me.name_color === c.id ? '<span class="pill-info">Déjà équipé</span>'
-          : have.has(c.id) ? '<button class="btn primary" id="pv-equip">Équiper</button>'
-          : `<button class="btn primary" id="pv-buy" ${money < c.price ? 'disabled' : ''}>Acheter pour ${c.price} rubis</button>`}
-      </div>
-      ${!have.has(c.id) && money < c.price ? `<p class="small center">Il te manque ${c.price - money} rubis.</p>` : ''}`);
-    $('#pv-buy', box)?.addEventListener('click', () => buy(c));
-    $('#pv-equip', box)?.addEventListener('click', () => safe(async () => {
-      await api.equipColor(c.id); state.me.name_color = c.id; closeModal(); toast('Effet changé'); renderNav(); pageShop();
-    }));
-  }));
-  app.querySelectorAll('[data-equip]').forEach(b => b.addEventListener('click', () => safe(async () => {
-    const id = b.dataset.equip || null;
-    await api.equipColor(id);
-    state.me.name_color = id;
-    toast('Effet changé'); renderNav(); pageShop();
+  app.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => pageShop(b.dataset.tab)));
+  app.querySelectorAll('[data-equip]').forEach(b => b.addEventListener('click', () => { const it = byId(b.dataset.equip); equip(it.kind, it.id); }));
+  app.querySelectorAll('[data-unequip]').forEach(b => b.addEventListener('click', () => equip(b.dataset.unequip, null)));
+  app.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    const it = byId(b.dataset.buy);
+    if (!confirm(`Acheter « ${it.name} » pour ${it.price} rubis ?`)) return;
+    if (it.kind === 'pseudo') { await api.buyColor(it.id); me.name_color = it.id; }
+    else { await api.buyItem(it.id); me[SLOT[it.kind]] = it.id; }
+    toast('Acheté et équipé !'); await loadBalances(); renderNav(); pageShop(tab);
   })));
+  app.querySelectorAll('[data-chest]').forEach(b => b.addEventListener('click', () => openChestDialog((chests || []).find(c => c.id === b.dataset.chest))));
+}
+
+// Ouverture d'un coffre : il tremble, s'ouvre, et révèle l'objet
+async function openChestDialog(c) {
+  const box = openModal(`
+    <div class="chest-open stage-shake">
+      <div class="co-rays"></div>
+      <div class="co-chest">${chestSvg(c.id)}</div>
+      <div class="co-reveal"></div>
+    </div>`, 'chest-modal');
+  let res;
+  try { res = await api.openChest(c.id); }
+  catch (e) { closeModal(); toast(e.message || 'Erreur', 'err'); return; }
+  await new Promise(r => setTimeout(r, 1400));
+  await loadBalances(); renderNav();
+  const it = res.kind === 'pseudo'
+    ? { ...(state.colors.get(res.id) || {}), id: res.id, name: res.name, effect: res.effect, kind: 'pseudo', rarity: res.rarity }
+    : { ...(state.items.get(res.id) || {}), ...res };
+  const st = $('.chest-open', box);
+  st.classList.remove('stage-shake'); st.classList.add('opened', RARITY[res.rarity][1]);
+  $('.co-chest', box).innerHTML = chestSvg(c.id, true);
+  $('.co-reveal', box).innerHTML = `
+    <div class="co-card ${RARITY[res.rarity][1]}">
+      ${rarityTag(res.rarity)}
+      ${itemPreview(it, state.me)}
+      <strong>${esc(res.name)}</strong>
+      <small class="muted">${KIND_LABEL[res.kind] || ''}</small>
+      ${res.duplicate ? `<p class="co-dup">Doublon ! Recyclé en ${rubis(res.refund)}</p>` : '<p class="co-new">✨ Nouveau !</p>'}
+    </div>
+    <div class="actions center">
+      ${!res.duplicate ? '<button class="btn primary" id="co-equip">Équiper</button>' : ''}
+      <button class="btn ghost" id="co-again" ${bal(state.me.id).rubis < c.price ? 'disabled' : ''}>Rouvrir · ${rubis(c.price)}</button>
+      <button class="btn ghost" data-close>Fermer</button>
+    </div>`;
+  const back = () => { closeModal(); if (location.hash.startsWith('#/boutique')) pageShop(); };
+  $('[data-close]', box)?.addEventListener('click', back);
+  $('#co-equip', box)?.addEventListener('click', () => safe(async () => {
+    if (res.kind === 'pseudo') { await api.equipColor(res.id); state.me.name_color = res.id; }
+    else { await api.equipItem(res.kind, res.id); state.me[SLOT[res.kind]] = res.id; }
+    toast('Équipé !'); renderNav(); back();
+  }));
+  $('#co-again', box)?.addEventListener('click', () => openChestDialog(c));
 }
 
 // ---------- Rôles (admins) ----------
