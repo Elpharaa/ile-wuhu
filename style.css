@@ -1035,3 +1035,15 @@ body.with-dock footer { margin-bottom: 96px; }
 .co-new { margin: 0; font-weight: 900; color: var(--leaf); }
 .co-dup { margin: 0; font-weight: 800; color: #b07800; }
 .chest-modal .actions .btn.ghost { background: rgba(255,255,255,.15); color: #fff; }
+
+/* ----- Un seul grand coffre ----- */
+.chests-one { display: grid; place-items: center; }
+.chest-big { width: min(420px, 100%); padding: 22px; }
+.chest-big .chest-stage { padding: 26px 0 8px; background: radial-gradient(circle at 50% 70%, #fff1b0, #ffe9a8 30%, var(--sky2) 75%); }
+.chest-big .chest-svg { width: 190px; height: 158px; animation: chest-idle 2.6s ease-in-out infinite; }
+@keyframes chest-idle { 0%, 80%, 100% { transform: none; } 85% { transform: rotate(-4deg); } 90% { transform: rotate(4deg); } 95% { transform: rotate(-2deg); } }
+.chest-big > strong { font-size: 1.3rem; }
+.btn.big { font-size: 1.1rem; padding: 12px 28px; }
+.collec { position: relative; width: 100%; display: flex; justify-content: space-between; font-weight: 800; font-size: .85rem; background: var(--sky2); border-radius: 999px; padding: 6px 12px; overflow: hidden; }
+.collec span, .collec b { position: relative; z-index: 1; }
+.collec i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #bfeaff, #7fd3ff); border-radius: 999px; }

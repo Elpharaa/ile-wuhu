@@ -1532,7 +1532,7 @@ const RARITY = { commun: ['Commun', 'r-commun'], rare: ['Rare', 'r-rare'], epiqu
 const colorRarity = price => price <= 80 ? 'commun' : price <= 140 ? 'rare' : price <= 220 ? 'epique' : 'legendaire';
 const rarityTag = r => `<span class="rar ${RARITY[r]?.[1] || ''}">${RARITY[r]?.[0] || ''}</span>`;
 const SHOP_TABS = [
-  ['coffres', '🎁', 'Coffres'], ['pseudo', '✨', 'Pseudos'], ['frame', '🖼️', 'Cadres'],
+  ['coffres', '🎁', 'Coffre'], ['pseudo', '✨', 'Pseudos'], ['frame', '🖼️', 'Cadres'],
   ['banner', '🏞️', 'Bannières'], ['title', '🏷️', 'Titres'], ['victory', '🎉', 'Victoires'],
 ];
 const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
@@ -1549,7 +1549,7 @@ function itemPreview(it, p) {
   }
   return '';
 }
-const CHEST_COL = { bois: ['#b9773f', '#7a4a22', '#e0a86a'], argent: ['#c4d2e0', '#7f93a8', '#ffffff'], or: ['#ffcf3f', '#c48a00', '#fff3b0'] };
+const CHEST_COL = { bois: ['#b9773f', '#7a4a22', '#e0a86a'], argent: ['#c4d2e0', '#7f93a8', '#ffffff'], or: ['#ffcf3f', '#c48a00', '#fff3b0'], wuhu: ['#ffcf3f', '#c48a00', '#fff3b0'] };
 const chestSvg = (id, open = false) => {
   const [a, b, c] = CHEST_COL[id] || CHEST_COL.bois;
   return `<svg class="chest-svg ${open ? 'open' : ''}" viewBox="0 0 120 100" aria-hidden="true">
@@ -1572,9 +1572,9 @@ async function pageShop(tab = state.shopTab || 'coffres') {
   const have = new Set([...(owned || []), ...(ownedItems || [])]);
   const money = bal(me.id).rubis;
   const all = [
-    ...[...state.colors.values()].filter(c => c.effect).map(c => ({ ...c, kind: 'pseudo', rarity: colorRarity(c.price), in_shop: true })),
+    ...[...state.colors.values()].filter(c => c.effect).map(c => ({ ...c, kind: 'pseudo', rarity: colorRarity(c.price) })),
     ...state.items.values(),
-  ];
+  ].map(i => ({ ...i, in_shop: false }));  // tout s'obtient uniquement dans le coffre
   const equipped = it => it.kind === 'pseudo' ? me.name_color === it.id : me[SLOT[it.kind]] === it.id;
   const count = k => all.filter(i => i.kind === k && have.has(i.id)).length + ' / ' + all.filter(i => i.kind === k).length;
 
@@ -1585,25 +1585,28 @@ async function pageShop(tab = state.shopTab || 'coffres') {
       ${equipped(it) ? `<span class="pill-info">Équipé</span><button class="btn ghost sm" data-unequip="${esc(it.kind)}">Retirer</button>`
         : have.has(it.id) ? `<button class="btn ghost sm" data-equip="${esc(it.id)}">Équiper</button>`
         : it.in_shop ? `${rubis(it.price)}<button class="btn primary sm" data-buy="${esc(it.id)}" ${money < it.price ? 'disabled' : ''}>Acheter</button>`
-        : '<span class="chest-only">🎁 Seulement dans les coffres</span>'}
+        : '<span class="chest-only">🔒 À gagner dans le coffre</span>'}
     </div>`;
 
   const chestCard = c => {
+    const got = all.filter(i => have.has(i.id)).length;
     const tot = c.w_commun + c.w_rare + c.w_epique + c.w_legendaire || 1;
     const odds = ['commun', 'rare', 'epique', 'legendaire'].filter(r => c['w_' + r]).map(r =>
       `<li class="${RARITY[r][1]}"><span>${RARITY[r][0]}</span><b>${Math.round(100 * c['w_' + r] / tot)}%</b></li>`).join('');
-    return `<div class="card chest-card chest-${esc(c.id)}">
+    return `<div class="card chest-card chest-big chest-${esc(c.id)}">
       <div class="chest-stage">${chestSvg(c.id)}</div>
       <strong>${esc(c.name)}</strong>
       <ul class="odds">${odds}</ul>
-      <button class="btn primary" data-chest="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Ouvrir · ${rubis(c.price)}</button>
+      <div class="collec"><span>Ta collection</span><b>${got} / ${all.length}</b><i style="width:${Math.round(100 * got / (all.length || 1))}%"></i></div>
+      <button class="btn primary big" data-chest="${esc(c.id)}" ${money < c.price ? 'disabled' : ''}>Ouvrir · ${rubis(c.price)}</button>
+      ${money < c.price ? `<p class="small center">Il te manque ${c.price - money} rubis.</p>` : ''}
     </div>`;
   };
 
   const body = tab === 'coffres' ? `
-      <p class="small">Chaque coffre contient un objet au hasard : cadre, bannière, titre, effet de victoire ou effet de pseudo.
-      Les objets <b class="r-legendaire-txt">légendaires</b> ne s'obtiennent que dans les coffres. Un doublon est recyclé en rubis.</p>
-      <div class="grid chests">${(chests || []).map(chestCard).join('')}</div>`
+      <p class="small">Tout s'obtient dans le coffre : effets de pseudo, cadres, bannières, titres et effets de victoire, au hasard.
+      Un doublon est recyclé en rubis. Équipe tes trouvailles dans les autres onglets.</p>
+      <div class="chests-one">${(chests || []).map(chestCard).join('')}</div>`
     : `${tab === 'pseudo' ? `<p class="small">L'effet s'affiche partout sur le site : profil, arbres, classement…</p>`
         : tab === 'frame' ? `<p class="small">Un cadre animé autour de ta photo, partout sur le site.</p>`
         : tab === 'banner' ? `<p class="small">Le décor en haut de ton profil.</p>`

@@ -183,12 +183,8 @@ function demoApi() {
     ['vi-confettis', 'victory', 'Confettis', 'confettis', 'commun'], ['vi-coeurs', 'victory', 'Pluie de cœurs', 'coeurs', 'rare'],
     ['vi-feu', 'victory', "Feu d'artifice", 'feu', 'rare'], ['vi-eclair', 'victory', 'Foudre', 'eclair', 'epique'],
     ['vi-galaxie', 'victory', "Pluie d'étoiles", 'galaxie', 'epique'], ['vi-or', 'victory', "Pluie d'or", 'or', 'legendaire'],
-  ].map(([id, kind, name, effect, rarity], position) => ({ id, kind, name, effect, rarity, price: PRICE[rarity], in_shop: rarity !== 'legendaire', position }));
-  const chests = [
-    { id: 'bois', name: 'Coffre en bois', price: 40, w_commun: 70, w_rare: 25, w_epique: 5, w_legendaire: 0 },
-    { id: 'argent', name: "Coffre d'argent", price: 100, w_commun: 35, w_rare: 45, w_epique: 17, w_legendaire: 3 },
-    { id: 'or', name: 'Coffre en or', price: 220, w_commun: 0, w_rare: 40, w_epique: 42, w_legendaire: 18 },
-  ];
+  ].map(([id, kind, name, effect, rarity], position) => ({ id, kind, name, effect, rarity, price: PRICE[rarity], in_shop: false, position }));
+  const chests = [{ id: 'wuhu', name: 'Coffre de Wuhu', price: 60, w_commun: 60, w_rare: 28, w_epique: 10, w_legendaire: 2 }];
   let ownedItems = [['u1', 'fr-feu'], ['u1', 'ti-feu'], ['u1', 'vi-feu'], ['u1', 'bn-feu']];
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
