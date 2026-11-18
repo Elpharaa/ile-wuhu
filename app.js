@@ -419,7 +419,6 @@ async function pageHome() {
     <section class="hero small-hero">
       <h1>Salut ${uname(me)} !</h1>
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
-      <div class="roles center">${rolesOf(me).map(rolePill).join('')}</div>
     </section>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
