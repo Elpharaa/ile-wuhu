@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119j';
+import { api, DEMO } from './api.js?v=20261119k';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119j';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119k';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -361,7 +361,7 @@ async function route() {
     case 'defis': return pageDuels();
     case 'pantheon': return pagePantheon();
     case 'quiz': return pageQuiz();
-    case 'blindtest': return pageBlindtest();
+    case 'blindtest': return parts[1] === 'salon' ? pageBtRoom(parts[2]) : pageBlindtest();
     case 'soiree': return pageParty(parts[1]);
     case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
@@ -2726,6 +2726,7 @@ async function pageBlindtest() {
     <div class="page-head"><h1>🎵 Blind test Nintendo</h1></div>
     <p class="small">Écoute l'extrait, trouve de quel jeu vient la musique ! Les extraits sont lus depuis YouTube : monte le son 🔊</p>
     <section class="card bt-card" id="bt-day"></section>
+    <section class="card bt-card bt-multi-card" id="bt-multi">${btMultiCard()}</section>
     <section class="card bt-card" id="bt-series">
       <div class="quiz-head"><h2>🔥 Mode série</h2></div>
       <p>Enchaîne <b>10 musiques</b> au hasard et bats ton record ! <span class="muted">(pour le plaisir : pas de rubis en jeu)</span></p>
@@ -2739,6 +2740,7 @@ async function pageBlindtest() {
     ${state.me.is_admin ? '<section id="bt-admin"></section>' : ''}`;
   await drawBtDay(today);
   $('#bt-start').addEventListener('click', () => btSeries());
+  bindBtMulti($('#bt-multi'));
   if (state.me.is_admin) drawBtAdmin();
 }
 async function drawBtDay(t) {
@@ -2878,6 +2880,193 @@ async function drawBtAdmin() {
     if (!confirm('Supprimer cette musique ?')) return;
     await api.btDelete(b.dataset.btdel); toast('Supprimée'); drawBtAdmin();
   })));
+}
+
+// ---------- Blind test multijoueur : salons en temps réel ----------
+// Tout le monde entend le même extrait au même moment (heure du serveur) ; le premier qui trouve marque le point.
+function btMultiCard() {
+  return `<div class="quiz-head"><h2>👥 Multijoueur</h2></div>
+    <p>Joue avec tes amis en direct : <b>même musique au même moment</b>, le plus rapide marque le point ! <span class="muted">(2 joueurs minimum)</span></p>
+    <div class="bt-multi">
+      <div class="bt-mbox"><b>Créer un salon</b>
+        <div class="seg bt-n">${[5, 10, 15].map(n => `<button type="button" data-n="${n}" class="${n === 10 ? 'on' : ''}">${n} musiques</button>`).join('')}</div>
+        <button class="btn primary" id="bt-create">🎮 Créer un salon</button></div>
+      <div class="bt-mbox"><b>Rejoindre avec un code</b>
+        <div class="bt-join"><input id="bt-code" maxlength="4" placeholder="ABCD" autocomplete="off"><button class="btn primary" id="bt-join">Rejoindre</button></div></div>
+    </div>`;
+}
+function bindBtMulti(box) {
+  let n = 10;
+  box.querySelectorAll('.bt-n [data-n]').forEach(b => b.addEventListener('click', () => { n = Number(b.dataset.n); box.querySelectorAll('.bt-n button').forEach(x => x.classList.toggle('on', x === b)); }));
+  $('#bt-create', box).addEventListener('click', () => safe(async () => { const id = await api.btRoomCreate(n); location.hash = `#/blindtest/salon/${id}`; }));
+  const join = () => safe(async () => {
+    const code = $('#bt-code', box).value.trim().toUpperCase();
+    if (code.length !== 4) return toast('Le code fait 4 caractères', 'err');
+    const id = await api.btRoomJoin(code); location.hash = `#/blindtest/salon/${id}`;
+  });
+  $('#bt-join', box).addEventListener('click', join);
+  $('#bt-code', box).addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+}
+let btRoomPlayer = null;
+async function pageBtRoom(arg) {
+  app.innerHTML = `<div class="loading">Chargement du salon…</div>`;
+  // lien partagé avec le code (4 lettres) : on rejoint d'abord
+  let roomId = arg;
+  if (/^[A-Za-z0-9]{4}$/.test(arg || '')) {
+    const id = await safe(() => api.btRoomJoin(arg)); if (!id) { location.hash = '#/blindtest'; return; }
+    roomId = id; history.replaceState(null, '', `#/blindtest/salon/${id}`);
+  }
+  const members = (await safe(() => api.listMembers())) || [];
+  const people = new Map(members.map(m => [m.id, m]));
+  const who = id => people.get(id) || { id, username: 'Joueur' };
+  let st = null, offset = 0, ready = false, curIdx = -1, myTry = null, revealed = null, timers = [], unsub = null, gone = false;
+  const clearT = () => { timers.forEach(clearTimeout); timers = []; };
+  const later = (f, ms) => timers.push(setTimeout(f, Math.max(0, ms)));
+  const serverNow = () => Date.now() + offset;
+  app.innerHTML = `<div class="bt-room">
+      <div class="bt-room-top"><a href="#/blindtest" class="btn ghost sm">← Quitter</a><h1>🎵 Blind test · salon</h1><span class="bt-room-code" id="r-code"></span></div>
+      <div class="bt-room-grid">
+        <div class="card bt-room-main">
+          <div class="bt-stage" id="r-stage"><div class="bt-video"><div id="r-yt"></div></div>
+            <div class="bt-cover"><div class="bt-vinyl"><span>🎵</span></div><div class="bt-count" id="r-count"></div><small class="bt-hint" id="r-hint"></small></div></div>
+          <div class="bt-bar"><i id="r-bar"></i></div>
+          <div id="r-body"></div>
+        </div>
+        <aside class="card bt-room-side"><h3>👥 Joueurs</h3><div id="r-players"></div></aside>
+      </div></div>`;
+  const stage = $('#r-stage'), bar = $('#r-bar');
+  // Le lecteur YouTube est créé au clic « Je suis prêt » : les navigateurs exigent un geste pour jouer du son
+  const makePlayer = vid => new Promise(res => {
+    ytReady().then(() => {
+      btRoomPlayer?.destroy?.();
+      btRoomPlayer = new YT.Player('r-yt', { host: 'https://www.youtube-nocookie.com', videoId: vid, width: '100%', height: '100%',
+        playerVars: { controls: 0, disablekb: 1, modestbranding: 1, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3 },
+        events: { onReady: e => { try { e.target.mute(); e.target.playVideo(); setTimeout(() => { try { e.target.pauseVideo(); e.target.unMute(); e.target.setVolume(90); } catch {} res(); }, 600); } catch { res(); } } } });
+    });
+  });
+  const stopAudio = () => { try { btRoomPlayer?.pauseVideo(); } catch {} stage.classList.remove('playing'); };
+  const load = async () => {
+    const s = await safe(() => api.btRoomState(roomId));
+    if (!s || gone) return;
+    offset = new Date(s.now).getTime() - Date.now();
+    st = s; render();
+  };
+  let pend = 0;
+  const refresh = () => { clearTimeout(pend); pend = setTimeout(load, 120); };
+  const players = () => {
+    const box = $('#r-players'); if (!box) return;
+    const tries = new Map((st.tries || []).map(t => [t.user_id, t]));
+    box.innerHTML = st.players.map((p, i) => {
+      const m = who(p.user_id), t = tries.get(p.user_id);
+      return `<div class="bt-pl ${p.user_id === state.me.id ? 'me' : ''} ${st.room.round_winner === p.user_id ? 'win' : ''}">
+        <span class="bt-pl-r">${st.room.status === 'lobby' ? '' : i + 1}</span>${avatar(m, 'av sm')}<span class="bt-pl-n">${uname(m)}${p.user_id === st.room.host ? ' 👑' : ''}</span>
+        ${st.room.status === 'lobby' ? '' : `<b>${p.score}</b>`}${t ? `<span class="bt-pl-t">${t.correct ? '⚡' : '❌'}</span>` : ''}</div>`;
+    }).join('');
+  };
+  const render = () => {
+    const r = st.room, body = $('#r-body');
+    $('#r-code').innerHTML = `Code <b>${esc(r.code)}</b>`;
+    players();
+    if (r.status === 'closed') { body.innerHTML = '<p class="empty">Ce salon est fermé.</p><a class="btn primary" href="#/blindtest">Retour</a>'; return; }
+    if (r.status === 'lobby') {
+      const link = `${location.origin}${location.pathname}#/blindtest/salon/${r.code}`;
+      const host = r.host === state.me.id;
+      $('#r-hint').textContent = 'En attente des joueurs…';
+      body.innerHTML = `<div class="bt-lobby">
+        <p>Partage le code <b class="bt-big">${esc(r.code)}</b> ou le lien pour inviter tes amis :</p>
+        <div class="bt-link"><input readonly value="${esc(link)}"><button class="btn ghost sm" id="r-copy">📋 Copier</button></div>
+        <p class="small">${r.total} musiques · 20 s par extrait · une seule réponse par musique · 🥇 +15 💎 🥈 +8 🥉 +4 (3 parties récompensées par jour)</p>
+        ${ready ? '<p class="bt-ready">✅ Son activé, tu es prêt !</p>' : '<button class="btn primary big" id="r-ready">🔊 Je suis prêt (activer le son)</button>'}
+        ${host ? `<button class="btn primary big" id="r-start" ${st.players.length < 2 ? 'disabled' : ''}>▶️ Lancer la partie ${st.players.length < 2 ? '(il faut 2 joueurs)' : `(${st.players.length} joueurs)`}</button>` : '<p class="muted">L\'hôte 👑 lancera la partie quand tout le monde est là.</p>'}
+      </div>`;
+      $('#r-copy')?.addEventListener('click', () => { navigator.clipboard?.writeText(link); toast('Lien copié !'); });
+      $('#r-ready')?.addEventListener('click', () => safe(async () => {
+        $('#r-ready').disabled = true; $('#r-ready').textContent = '⏳ Activation…';
+        const pool = await safe(() => api.btPool(parisDay()));
+        await makePlayer(pool?.[0]?.youtube_id || 'M7lc1UVf-VE');
+        ready = true; render();
+      }));
+      $('#r-start')?.addEventListener('click', () => safe(async () => { if (!ready) { toast('Active le son avec « Je suis prêt » d\'abord 🔊', 'err'); return; } await api.btRoomStart(roomId); }));
+      return;
+    }
+    if (r.status === 'done') {
+      clearT(); stopAudio(); stage.classList.add('revealed');
+      const rw = new Map((r.rewards || []).map(x => [x.user_id, x]));
+      body.innerHTML = `<div class="bt-end"><h2>🏁 Partie terminée !</h2>
+        <div class="bt-podium">${st.players.slice(0, 3).map((p, i) => { const m = who(p.user_id), x = rw.get(p.user_id);
+          return `<div class="bt-pod p${i + 1}">${[I.medal1, I.medal2, I.medal3][i]}${avatar(m, 'av lg')}<b>${uname(m)}</b><span>${p.score} pt${p.score > 1 ? 's' : ''}</span>
+            ${x?.rubis ? `<small>+${x.rubis} 💎 +${x.rubis} 🍄</small>` : x?.capped ? '<small>limite du jour atteinte</small>' : ''}</div>`; }).join('')}</div>
+        <button class="btn primary" id="r-again">🔁 Nouveau salon</button> <a class="btn ghost" href="#/blindtest">Retour</a></div>`;
+      if (st.players[0]?.user_id === state.me.id) confetti(80);
+      $('#r-again').addEventListener('click', () => safe(async () => { const id = await api.btRoomCreate(r.total); location.hash = `#/blindtest/salon/${id}`; }));
+      loadBalances().then(renderNav);
+      return;
+    }
+    // ----- partie en cours -----
+    if (!ready) {
+      body.innerHTML = `<p>La partie a commencé !</p><button class="btn primary big" id="r-ready">🔊 Activer le son et jouer</button>`;
+      $('#r-ready').addEventListener('click', () => safe(async () => { await makePlayer(st.track.youtube_id); ready = true; curIdx = -1; render(); }));
+      return;
+    }
+    const t = st.track; if (!t) return;
+    if (r.idx !== curIdx) {
+      // nouvelle manche : on prépare la vidéo et on programme le départ à l'heure du serveur
+      curIdx = r.idx; myTry = null; revealed = null; clearT(); stopAudio();
+      stage.classList.remove('revealed'); bar.style.transition = 'none'; bar.style.width = '0';
+      try { btRoomPlayer.cueVideoById({ videoId: t.youtube_id, startSeconds: t.start_s }); } catch {}
+      const startAt = new Date(r.round_started_at).getTime() - offset;
+      const tick = () => { const s = Math.ceil((startAt - Date.now()) / 1000); $('#r-count').textContent = s > 0 ? s : ''; if (s > 0) later(tick, 200); };
+      tick();
+      $('#r-hint').textContent = `Musique ${r.idx + 1} / ${st.count}`;
+      later(() => {
+        if (gone || st.room.idx !== curIdx) return;
+        try { btRoomPlayer.seekTo(t.start_s, true); btRoomPlayer.playVideo(); } catch {}
+        stage.classList.add('playing');
+        requestAnimationFrame(() => { bar.style.transition = `width ${t.duration_s}s linear`; bar.style.width = '100%'; });
+        // bouton de secours si le navigateur a bloqué la lecture
+        later(() => { try { if (btRoomPlayer.getPlayerState() !== 1 && !revealed) $('#r-hint').innerHTML = '<button class="btn ghost sm" id="r-unmute">🔊 Pas de son ? Touche ici</button>'; $('#r-unmute')?.addEventListener('click', () => { btRoomPlayer.seekTo(t.start_s, true); btRoomPlayer.playVideo(); }); } catch {} }, 1500);
+        later(() => { stopAudio(); doReveal(); }, t.duration_s * 1000);
+      }, startAt - Date.now());
+    }
+    if (st.room.round_closed && !revealed) doReveal();
+    drawChoices();
+  };
+  const drawChoices = () => {
+    const t = st.track, body = $('#r-body');
+    const started = serverNow() >= new Date(st.room.round_started_at).getTime();
+    const ans = revealed?.answer;
+    body.innerHTML = `<p class="bt-q">De quel jeu vient cette musique ?</p>
+      ${btChoices(t, ans != null ? { picked: myTry?.choice ?? null, answer: ans } : {})}
+      <div class="bt-room-res">${revealed ? `${revealed.winner ? `⚡ <b>${uname(who(revealed.winner))}</b> a trouvé !` : '⏱️ Personne n\'a trouvé…'}
+        ${revealed.title ? `<p class="bt-title">🎶 ${esc(revealed.title)}</p>` : ''}<small class="muted">${st.room.idx + 1 < st.count ? 'Musique suivante dans un instant…' : 'Résultats dans un instant…'}</small>`
+        : myTry ? (myTry.correct ? '🎉 <b>Bonne réponse !</b> +1 point' : '❌ Raté ! Attends la musique suivante…') : started ? '' : '<small class="muted">Prépare-toi…</small>'}</div>`;
+    if (ans == null && !myTry) body.querySelectorAll('[data-bt]').forEach(b => b.addEventListener('click', () => safe(async () => {
+      if (serverNow() < new Date(st.room.round_started_at).getTime()) return toast('Attends le début de l\'extrait !', 'err');
+      body.querySelectorAll('[data-bt]').forEach(x => (x.disabled = true));
+      const res = await api.btRoomAnswer(roomId, st.room.idx, Number(b.dataset.bt));
+      if (res?.late) { toast('Trop tard !', 'err'); return; }
+      myTry = { choice: Number(b.dataset.bt), correct: res.correct };
+      if (res.correct) burst(b);
+      drawChoices();
+    })));
+    else body.querySelectorAll('[data-bt]').forEach(x => (x.disabled = true));
+  };
+  const doReveal = async () => {
+    if (revealed) return;
+    const idx = st.room.idx;
+    const res = await safe(() => api.btRoomReveal(roomId, idx));
+    if (!res || st.room.idx !== idx) return;
+    revealed = res; stopAudio(); stage.classList.add('revealed');
+    const w = getComputedStyle(bar).width; bar.style.transition = 'none'; bar.style.width = w;
+    drawChoices(); players();
+    // l'hôte passe à la suite après 5 s ; les autres prennent le relais s'il ne répond plus
+    later(() => api.btRoomNext(roomId, idx).catch(() => {}), st.room.host === state.me.id ? 5000 : 9000);
+  };
+  unsub = api.btRoomSubscribe(roomId, refresh);
+  const poll = setInterval(load, 4000); // filet de sécurité si le temps réel décroche
+  unsubscribe = () => { gone = true; clearT(); clearInterval(poll); unsub?.(); stopAudio(); try { btRoomPlayer?.destroy(); } catch {} btRoomPlayer = null;
+    if (st?.room?.status === 'lobby') api.btRoomLeave(roomId).catch(() => {}); };
+  await load();
 }
 
 // ---------- Bienvenue sur l'île (première visite) ----------

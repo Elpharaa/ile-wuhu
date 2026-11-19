@@ -1562,3 +1562,31 @@ body.with-dock footer { margin-bottom: 96px; }
 .bt-home-ic { font-size: 2rem; width: 54px; height: 54px; display: grid; place-items: center; background: rgba(255,255,255,.15); border-radius: 16px; }
 .bt-home-go { background: #fff; color: #7a2fd1; font-weight: 800; border-radius: 999px; padding: 8px 14px; }
 @media (max-width: 640px) { .bt-home-go { display: none; } }
+/* ---------- Blind test multijoueur ---------- */
+.bt-multi-card { border: 3px solid #b48cff; }
+.bt-multi { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.bt-mbox { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 16px; background: var(--sky2); }
+.bt-mbox .seg { align-self: flex-start; }
+.bt-join { display: flex; gap: 6px; } .bt-join input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: .3em; font-weight: 800; font-size: 1.1rem; text-align: center; }
+.bt-room-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; } .bt-room-top h1 { flex: 1; margin: 0; font-size: 1.4rem; }
+.bt-room-code { background: #fff; border-radius: 999px; padding: 6px 14px; box-shadow: var(--shadow); } .bt-room-code b { letter-spacing: .2em; color: #7a2fd1; }
+.bt-room-grid { display: grid; grid-template-columns: 1fr 260px; gap: 14px; align-items: start; }
+.bt-room-main .bt-bar { max-width: 480px; margin: 0 auto 8px; }
+.bt-count { position: absolute; font-size: 3.4rem; font-weight: 900; color: #fff; text-shadow: 0 4px 12px rgba(0,0,0,.5); }
+.bt-room-side h3 { margin: 0 0 8px; }
+.bt-pl { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 12px; }
+.bt-pl.me { background: var(--sky2); } .bt-pl.win { background: #e3f9ea; animation: wlPop .4s; }
+.bt-pl-r { width: 18px; font-weight: 800; color: #6b7a8a; } .bt-pl-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-pl-t { font-size: 1.1rem; }
+.bt-lobby { text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.bt-big { font-size: 2rem; letter-spacing: .25em; color: #7a2fd1; display: block; margin: 4px 0; }
+.bt-link { display: flex; gap: 6px; width: 100%; max-width: 420px; } .bt-link input { flex: 1; min-width: 0; font-size: .8rem; }
+.bt-ready { color: #1f9d55; font-weight: 800; }
+.btn.big { font-size: 1.05rem; padding: 12px 22px; }
+.bt-room-res { text-align: center; min-height: 54px; margin-top: 8px; }
+.bt-end { text-align: center; }
+.bt-podium { display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin: 14px 0; }
+.bt-pod { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px; border-radius: 16px; background: var(--sky2); min-width: 100px; }
+.bt-pod.p1 { order: 2; background: #fff3c4; padding-bottom: 24px; } .bt-pod.p2 { order: 1; } .bt-pod.p3 { order: 3; }
+.bt-pod small { color: #1f9d55; font-weight: 700; }
+@media (max-width: 760px) { .bt-room-grid { grid-template-columns: 1fr; } .bt-room-side { order: -1; } .bt-multi { grid-template-columns: 1fr; } }

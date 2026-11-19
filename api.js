@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119j';
+import { resolveBracket } from './bracket.js?v=20261119k';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -167,6 +167,24 @@ async function supabaseApi() {
     btSave: async t => ok(await sb.rpc('wuhu_bt_save', { p_id: t.id || null, p_day: t.day || null, p_youtube: t.youtube_id, p_start: t.start_s, p_duration: t.duration_s,
       p_choices: t.choices, p_answer: t.answer, p_title: t.title || '', p_explanation: t.explanation || '', p_reward: t.reward })),
     btDelete: async id => ok(await sb.rpc('wuhu_bt_delete', { p_id: id })),
+    // Blind test multijoueur (salons en temps réel)
+    btRoomCreate: async total => ok(await sb.rpc('wuhu_bt_room_create', { p_total: total })),
+    btRoomJoin: async code => ok(await sb.rpc('wuhu_bt_room_join', { p_code: code })),
+    btRoomLeave: async id => ok(await sb.rpc('wuhu_bt_room_leave', { p_room: id })),
+    btRoomStart: async id => ok(await sb.rpc('wuhu_bt_room_start', { p_room: id })),
+    btRoomState: async id => ok(await sb.rpc('wuhu_bt_room_state', { p_room: id })),
+    btRoomAnswer: async (id, idx, choice) => ok(await sb.rpc('wuhu_bt_room_answer', { p_room: id, p_idx: idx, p_choice: choice })),
+    btRoomReveal: async (id, idx) => ok(await sb.rpc('wuhu_bt_room_reveal', { p_room: id, p_idx: idx })),
+    btRoomNext: async (id, idx) => ok(await sb.rpc('wuhu_bt_room_next', { p_room: id, p_idx: idx })),
+    btRoomByCode: async code => ok(await sb.from('wuhu_bt_rooms').select('id, status').eq('code', code.toUpperCase()).in('status', ['lobby', 'playing', 'done']).order('created_at', { ascending: false }).limit(1).maybeSingle()),
+    btRoomSubscribe(id, cb) {
+      const ch = sb.channel('bt-' + id)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'wuhu_bt_rooms', filter: `id=eq.${id}` }, cb)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'wuhu_bt_room_players', filter: `room_id=eq.${id}` }, cb)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'wuhu_bt_room_tries', filter: `room_id=eq.${id}` }, cb)
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    },
     // Accueil des nouveaux (cadeau donné une seule fois) et saisons mensuelles
     welcome: async () => ok(await sb.rpc('wuhu_welcome')),
     seasonBoard: async month => ok(await sb.rpc('wuhu_season_board', month ? { p_month: month } : {})),
@@ -289,6 +307,10 @@ function demoApi() {
   ];
   const parisDayDemo = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
   const btAns = new Map();
+  let demoRoom = null; const roomSubs = new Set(); const roomPing = () => roomSubs.forEach(f => f());
+  const demoRound = () => { const r = demoRoom; r.round_started_at = new Date(Date.now() + 3000).toISOString(); r.round_closed = false; r.round_winner = null; roomPing();
+    const i = r.idx; setTimeout(() => { if (r.idx !== i || r.round_closed) return; r.tries.push({ idx: i, user_id: 'u4', correct: false }); roomPing(); }, 5500);
+    setTimeout(() => { if (r.idx !== i || r.round_closed) return; if (i % 2) { r.tries.push({ idx: i, user_id: 'u2', correct: true }); r.players.find(p => p.user_id === 'u2').score++; r.round_closed = true; r.round_winner = 'u2'; roomPing(); } }, 7000); };
   const btTracks = [
     { id: 'bt1', day: parisDayDemo(), youtube_id: 'aaaaaaaaaaa', start_s: 12, duration_s: 20, reward: 15, choices: ['Super Mario Galaxy', 'Super Mario 64', 'Super Mario Sunshine', 'Super Mario Odyssey'],
       key: { answer: 0, title: 'Gusty Garden Galaxy · Super Mario Galaxy', explanation: 'Composée par Mahito Yokota, c\'est l\'un des thèmes les plus célèbres de la série.' } },
@@ -433,6 +455,24 @@ function demoApi() {
     async btSave(t) { const row = { id: t.id || 'bt' + Date.now(), day: t.day || null, youtube_id: t.youtube_id, start_s: t.start_s, duration_s: t.duration_s, choices: t.choices, reward: t.reward,
       key: { answer: t.answer, title: t.title, explanation: t.explanation } }; const i = btTracks.findIndex(x => x.id === row.id); i >= 0 ? (btTracks[i] = row) : btTracks.push(row); return row.id; },
     async btDelete(id) { const i = btTracks.findIndex(x => x.id === id); if (i >= 0) btTracks.splice(i, 1); },
+    // --- salon de démo : deux joueurs fictifs rejoignent et répondent tout seuls ---
+    async btRoomCreate(total) { const id = 'room1'; demoRoom = { id, code: 'WUHU', host: 'u0', status: 'lobby', total, tracks: [], idx: 0, round_started_at: null, round_closed: false, round_winner: null, rewards: null,
+      players: [{ user_id: 'u0', score: 0 }], tries: [] };
+      setTimeout(() => { demoRoom.players.push({ user_id: 'u2', score: 0 }); roomPing(); }, 900);
+      setTimeout(() => { demoRoom.players.push({ user_id: 'u4', score: 0 }); roomPing(); }, 1600); return id; },
+    async btRoomJoin() { return demoRoom?.id || this.btRoomCreate(10); },
+    async btRoomByCode() { return demoRoom ? { id: demoRoom.id, status: demoRoom.status } : null; },
+    async btRoomLeave() { demoRoom = null; },
+    async btRoomStart() { const r = demoRoom; r.tracks = btTracks.filter(t => !t.day).slice(0, Math.min(r.total, 4)).map(t => t.id); r.status = 'playing'; r.idx = 0; demoRound(); },
+    async btRoomState() { const r = demoRoom; if (!r) return null; const t = r.status === 'playing' ? btTracks.find(x => x.id === r.tracks[r.idx]) : null;
+      return clone({ room: { ...r, players: undefined, tries: undefined, tracks: undefined }, now: new Date().toISOString(), count: r.tracks.length,
+        track: t && { id: t.id, youtube_id: t.youtube_id, start_s: t.start_s, duration_s: 8, choices: t.choices }, players: [...r.players].sort((a, b) => b.score - a.score), tries: r.tries.filter(x => x.idx === r.idx) }); },
+    async btRoomAnswer(id, idx, choice) { const r = demoRoom, t = btTracks.find(x => x.id === r.tracks[idx]); if (r.round_closed) return { late: true };
+      const ok = choice === t.key.answer; r.tries.push({ idx, user_id: 'u0', correct: ok }); if (ok) { r.players.find(p => p.user_id === 'u0').score++; r.round_closed = true; r.round_winner = 'u0'; } roomPing(); return { correct: ok, secs: 2.4 }; },
+    async btRoomReveal(id, idx) { const r = demoRoom, t = btTracks.find(x => x.id === r.tracks[idx]); r.round_closed = true; return { answer: t.key.answer, title: t.key.title, winner: r.round_winner }; },
+    async btRoomNext(id, idx) { const r = demoRoom; if (r.idx !== idx || r.status !== 'playing') return; if (r.idx + 1 < r.tracks.length) { r.idx++; demoRound(); }
+      else { r.status = 'done'; r.rewards = [...r.players].sort((a, b) => b.score - a.score).slice(0, 3).map((p, i) => ({ user_id: p.user_id, rank: i + 1, rubis: [15, 8, 4][i] })); roomPing(); } },
+    btRoomSubscribe(id, cb) { roomSubs.add(cb); return () => roomSubs.delete(cb); },
     async welcome() { return /bienvenue-demo/.test(location.hash) ? { new: true, rubis: 50, title: 'Petit nouveau' } : { new: false }; },
     async seasonBoard() { return [{ user_id: 'u2', points: 145 }, { user_id: 'u0', points: 120 }, { user_id: 'u4', points: 95 }, { user_id: 'u1', points: 60 }, { user_id: 'u5', points: 25 }]; },
     async seasons() { return [{ month: '2026-10-01', ranking: [{ user_id: 'u1', points: 210, rank: 1, rubis: 100 }, { user_id: 'u2', points: 180, rank: 2, rubis: 60 }, { user_id: 'u3', points: 90, rank: 3, rubis: 30 }] }]; },
