@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js';
+import { api, DEMO } from './api.js?v=20261119b';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119b';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -504,6 +504,14 @@ function matchesOf(tours, uid) {
       mine: sc ? sc[i] : null, theirs: sc ? sc[1 - i] : null };
   });
 }
+// Défis amicaux (lancés depuis Discord avec /defi) : mêlés à l'historique comme des matchs
+function duelMatches(duels, uid) {
+  return (duels || []).filter(d => d.challenger === uid || d.opponent === uid).map(d => ({
+    duel: true, t: { id: null, name: 'Défi amical', created_at: d.done_at }, title: d.game || 'Match amical', s: {}, order: 0,
+    opp: d.challenger === uid ? d.opponent : d.challenger, team: false, done: true, won: d.winner === uid, mine: null, theirs: null,
+  }));
+}
+const byDate = list => list.sort((a, b) => (b.t.created_at || '').localeCompare(a.t.created_at || ''));
 const oppOf = (x, people) => x.ffa ? { username: `Match à ${x.s.players.filter(Boolean).length} · ${x.done ? PLACE[x.place] : 'à jouer'}` } : x.oppTeam ? teamPerson(x.oppTeam.id, x.oppTeam, m => people.get(m)) : people.get(x.opp) || { username: '?' };
 function headToHead(list) {
   const map = new Map();
@@ -517,6 +525,7 @@ function headToHead(list) {
 }
 // Finale perdue : défaite au dernier match du tableau (finale / grande finale)
 function isFinal(x) {
+  if (x.duel) return false;
   const R = x.t.bracket.rounds || {};
   return x.t.bracket.format === 'double' ? x.m.b === 'GF' : x.m.b === 'W' && x.m.r === R.W;
 }
@@ -1068,7 +1077,7 @@ async function pageTournament(id) {
         ${t.status === 'open' ? `<p class="hint">${me.is_admin ? 'Forme les équipes à partir des inscrits. Seules les équipes complètes entrent dans l\'arbre.' : 'Les équipes sont formées par les admins. Une fois dans une équipe, tu peux lui choisir un nom.'}</p>` : ''}
         <div class="teams">${Object.entries(t.bracket ? t.bracket.teams || {} : teamsObj).map(([tid, tm]) => {
           const mine = tm.members.includes(me.id);
-          return `<div class="team-card ${mine ? 'mine' : ''}">
+          return `<div class="team-card ${mine ? 'mine' : ''}" data-team="${esc(tid)}" role="button" tabindex="0">
             <div class="tc-head">${avatar(ppl.get(tid), 'av md')}<strong>${esc(tm.name)}</strong>
               ${mine || me.is_admin ? `<button class="btn ghost sm" data-rename="${esc(tid)}" title="Renommer">✏️</button>` : ''}
               ${me.is_admin && t.status === 'open' ? `<button class="x" data-delteam="${esc(tid)}" title="Défaire l'équipe">✕</button>` : ''}</div>
@@ -1124,6 +1133,15 @@ async function pageTournament(id) {
     if (!confirm('Défaire cette équipe ? Les deux joueurs restent inscrits.')) return;
     await api.deleteTeam(b.dataset.delteam); reload();
   })));
+  app.querySelectorAll('[data-team]').forEach(c => {
+    const open = e => {
+      if (e.target.closest('button, a')) return;
+      const tid = c.dataset.team, tm = (t.bracket?.teams || teamsObj)[tid];
+      if (tm) teamSheet(t, tid, tm, people, ppl);
+    };
+    c.addEventListener('click', open);
+    c.addEventListener('keydown', e => { if (e.key === 'Enter') open(e); });
+  });
   app.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => safe(async () => {
     const cur = (t.bracket?.teams || teamsObj)[b.dataset.rename]?.name || '';
     const name = (prompt('Nom de l\'équipe (40 caractères max) :', cur) || '').trim();
@@ -1214,6 +1232,39 @@ function launchDialog(t, placement, reload, teams = null) {
 }
 
 // Former une équipe : choisir 2 inscrits sans équipe
+// Fiche d'une équipe : ses 2 joueurs et son parcours dans le tournoi
+function teamSheet(t, tid, tm, people, ppl) {
+  const members = tm.members.map(m => people.get(m) || { id: m, username: '?' });
+  const res = t.bracket ? resolveBracket(t.bracket) : null;
+  const run = res ? t.bracket.matches.map(m => ({ m, s: res.state[m.id] }))
+    .filter(x => x.s.playable && x.s.players.includes(tid)) : [];
+  const champ = t.winner_team === tid;
+  const line = ({ m, s }) => {
+    const i = s.players.indexOf(tid), opp = ppl.get(s.players[1 - i]) || { username: '?' };
+    const sc = s.result?.s;
+    const st = s.done ? (s.winner === tid ? 'w' : 'l') : 'todo';
+    return `<div class="tline mrow ${st}">
+      <span class="mres">${s.done ? (s.winner === tid ? 'V' : 'D') : '⚔️'}</span>
+      <span class="mopp">${avatar(opp, 'av sm')} <span>${uname(opp)}</span></span>
+      <span class="mscore">${sc ? `${esc(sc[i])} – ${esc(sc[1 - i])}` : s.done ? '' : 'à jouer'}</span>
+      <small class="muted mwhere">${esc(roundTitle(t.bracket, m.b, m.r))}</small>
+    </div>`;
+  };
+  const W = run.filter(x => x.s.done && x.s.winner === tid).length, L = run.filter(x => x.s.done && x.s.winner !== tid).length;
+  openModal(`
+    <div class="team-sheet">
+      <div class="ts-avs">${members.map(m => avatar(m, 'av xl')).join('')}</div>
+      <h2>${champ ? '🏆 ' : ''}${esc(tm.name)}</h2>
+      <p class="muted">${esc(t.name)}${run.length ? ` · ${W} victoire${W > 1 ? 's' : ''} – ${L} défaite${L > 1 ? 's' : ''}` : ''}</p>
+      <div class="ts-members">${members.map(m => `
+        <a href="#/profil/${esc(m.id)}" class="ts-m">${avatar(m, 'av md')}<span><b>${uname(m)}</b>${wtitle(m)}</span><span class="ts-go">Profil →</span></a>`).join('')}</div>
+      ${run.length ? `<h3>Parcours</h3><div class="tlist mhist">${run.map(line).join('')}</div>`
+        : `<p class="hint">${t.status === 'open' ? 'Le tournoi n\'est pas encore lancé.' : 'Pas encore de match joué.'}</p>`}
+      <div class="actions center"><button type="button" class="btn ghost" data-close>Fermer</button></div>
+    </div>`, 'team-modal');
+  modal.querySelectorAll('.ts-m').forEach(a => a.addEventListener('click', closeModal));
+}
+
 function teamDialog(t, people, inTeam, count, reload) {
   const free = [...people.entries()].filter(([u]) => !inTeam.has(u));
   const box = openModal(`
@@ -1304,9 +1355,9 @@ function matchSheet(t, s, people, reload, canEdit) {
   $('#ms-edit', box)?.addEventListener('click', () => scoreDialog(t, s, people, reload, canEdit === 'player'));
   if (s.players[0] && s.players[1]) drawReactions($('#ms-react', box), t, s.id, people);
   // Face-à-face entre les deux joueurs, tous tournois confondus
-  if (s.players[0] && s.players[1] && !t.bracket.teams) safe(() => api.listTournaments()).then(all => {
+  if (s.players[0] && s.players[1] && !t.bracket.teams) Promise.all([safe(() => api.listTournaments()), safe(() => api.listDuels(s.players[0]))]).then(([all, duels]) => {
     const el = $('#ms-h2h', box); if (!el) return;
-    const r = headToHead(matchesOf(all || [], s.players[0])).get(s.players[1]) || { w: 0, l: 0 };
+    const r = headToHead([...matchesOf(all || [], s.players[0]), ...duelMatches(duels, s.players[0])]).get(s.players[1]) || { w: 0, l: 0 };
     el.innerHTML = r.w + r.l ? `<small>Face-à-face</small><b><span class="${r.w >= r.l ? 'hi' : ''}">${r.w}</span> – <span class="${r.l >= r.w ? 'hi' : ''}">${r.l}</span></b><small>${r.w + r.l} match${r.w + r.l > 1 ? 's' : ''}</small>` : '<small>Premier affrontement entre eux !</small>';
   });
 }
@@ -1573,12 +1624,12 @@ async function addPlayersDialog({ title, note, already, room, addMember, addGues
 async function pageProfile(id) {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   await loadBalances();
-  const [p, ts, hist, members] = await Promise.all([safe(() => api.getProfile(id)), safe(() => api.userStats(id)), safe(() => api.ledger(id)), safe(() => api.listMembers())]);
+  const [p, ts, hist, members, duels] = await Promise.all([safe(() => api.getProfile(id)), safe(() => api.userStats(id)), safe(() => api.ledger(id)), safe(() => api.listMembers()), safe(() => api.listDuels(id))]);
   if (!p) { app.innerHTML = '<p class="empty">Profil introuvable.</p>'; return; }
   const tours = ts || [];
   const people = new Map((members || []).map(m => [m.id, m]));
   const who = uid => people.get(uid) || { id: uid, username: '?' };
-  const mm = matchesOf(tours, id);
+  const mm = byDate([...matchesOf(tours, id), ...duelMatches(duels, id)]);
   const played = mm.filter(x => x.done);
   const W = played.filter(x => x.won).length, L = played.length - W;
   const finals = played.filter(x => !x.won && isFinal(x));
@@ -1632,11 +1683,11 @@ async function pageProfile(id) {
       <h2>Historique des matchs</h2>
       <div class="tlist mhist">
         ${mm.slice(0, 30).map(x => `
-          <a href="#/tournoi/${esc(x.t.id)}" class="tline mrow ${x.done ? (x.won ? 'w' : 'l') : 'todo'}">
+          <a href="${x.duel ? `#/profil/${esc(x.opp)}` : `#/tournoi/${esc(x.t.id)}`}" class="tline mrow ${x.done ? (x.won ? 'w' : 'l') : 'todo'} ${x.duel ? 'duel' : ''}">
             <span class="mres">${x.done ? (x.won ? 'V' : 'D') : '⚔️'}</span>
             <span class="mopp">${avatar(oppOf(x, { get: who }), 'av sm')} <span>${uname(oppOf(x, { get: who }))}</span></span>
             <span class="mscore">${x.mine != null ? `${esc(x.mine)} – ${esc(x.theirs)}` : x.done ? '' : 'à jouer'}</span>
-            <small class="muted mwhere">${esc(x.t.name)} · ${esc(x.title)}</small>
+            <small class="muted mwhere">${x.duel ? '⚔️ ' : ''}${esc(x.t.name)} · ${esc(x.title)}</small>
           </a>`).join('') || '<p class="empty">Aucun match joué pour l\'instant.</p>'}
       </div>
     </section>

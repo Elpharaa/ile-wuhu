@@ -1353,3 +1353,20 @@ body.with-dock footer { margin-bottom: 96px; }
 .rkp.on { border-color: var(--sun); background: #fff8dc; }
 .pm4 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 4px; }
 .pm4 .pm-p b { color: #ffd84d; font-size: .75rem; margin-right: 2px; }
+
+/* ===== Fiche d'équipe ===== */
+.team-card[data-team] { cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.team-card[data-team]:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15,80,120,.16); }
+.team-sheet { text-align: center; }
+.team-sheet h2 { margin: 8px 0 2px; }
+.team-sheet h3 { text-align: left; margin: 16px 0 6px; }
+.ts-avs { display: flex; justify-content: center; }
+.ts-avs > * + * { margin-left: -18px; }
+.ts-avs .av, .ts-avs img { box-shadow: 0 0 0 4px #fff; border-radius: 50%; }
+.ts-members { display: grid; gap: 8px; margin-top: 12px; text-align: left; }
+.ts-m { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--sky2); text-decoration: none; color: inherit; }
+.ts-m > span:nth-child(2) { flex: 1; display: grid; gap: 2px; }
+.ts-go { font-size: .8rem; font-weight: 800; opacity: .6; }
+.team-sheet .mhist { text-align: left; }
+.ts-m .wtitle { justify-self: start; }
+.mrow.duel .mres { box-shadow: 0 0 0 2px #ff8a3d inset; }

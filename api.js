@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js';
+import { resolveBracket } from './bracket.js?v=20261119b';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -98,6 +98,11 @@ async function supabaseApi() {
     renameTeam: async (id, name) => ok(await sb.rpc('wuhu_rename_team', { p_team: id, p_name: name })),
     // ----- Réactions sur les matchs -----
     listReactions: async tid => ok(await sb.from('wuhu_match_reactions').select('match_id, user_id, emoji').eq('tournament_id', tid)),
+    listDuels: async uid => {
+      let q = sb.from('wuhu_duels').select('id, challenger, opponent, game, winner, done_at').eq('status', 'done').order('done_at', { ascending: false }).limit(500);
+      if (uid) q = q.or(`challenger.eq.${uid},opponent.eq.${uid}`);
+      return ok(await q);
+    },
     react: async (tid, mid, uid, emoji, on) => ok(on
       ? await sb.from('wuhu_match_reactions').insert({ tournament_id: tid, match_id: mid, user_id: uid, emoji })
       : await sb.from('wuhu_match_reactions').delete().eq('tournament_id', tid).eq('match_id', mid).eq('user_id', uid).eq('emoji', emoji)),
@@ -249,6 +254,10 @@ function demoApi() {
   ];
   let quizAns = [];
   let teams = [];
+  const duels = [
+    { id: 'd1', challenger: 'u1', opponent: 'u0', game: 'Mario Kart 8', winner: 'u0', done_at: new Date(Date.now() - 864e5).toISOString() },
+    { id: 'd2', challenger: 'u0', opponent: 'u2', game: null, winner: 'u2', done_at: new Date(Date.now() - 2 * 864e5).toISOString() },
+  ];
   let reactions = [['u1', '🔥'], ['u2', '🔥'], ['u3', '😂'], ['u4', '🔥'], ['u5', '😱']].map(([user_id, emoji]) => ({ tournament_id: 't2', match_id: 'W1-0', user_id, emoji }));
   const demoImg = (h, e) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${h},70%,60%)"/><text x="200" y="175" font-size="90" text-anchor="middle">${e}</text></svg>`);
   let photos = [['🎳', 200, 'La finale de bowling !', ['u1', 'u2', 'u3']], ['🍕', 30, 'Pause pizza', ['u2']], ['🏆', 50, 'Les champions', ['u1', 'u2', 'u3', 'u4', 'u5']], ['🎮', 260, null, []], ['🎾', 120, 'Match serré', ['u4']]]
@@ -338,6 +347,7 @@ function demoApi() {
       const t = db.tournaments.find(y => y.bracket?.teams?.[id]); if (t) t.bracket.teams[id].name = name;
     },
     async listReactions(tid) { return clone(reactions.filter(r => r.tournament_id === tid)); },
+    async listDuels(uid) { return clone(duels.filter(d => !uid || d.challenger === uid || d.opponent === uid)); },
     async react(tid, mid, uid, emoji, on) {
       reactions = reactions.filter(r => !(r.tournament_id === tid && r.match_id === mid && r.user_id === uid && r.emoji === emoji));
       if (on) reactions.push({ tournament_id: tid, match_id: mid, user_id: uid, emoji });
