@@ -91,6 +91,20 @@ async function supabaseApi() {
       return files.filter(f => f.id).map(f => ({ name: f.name, path: 'galerie/' + f.name, url: sb.storage.from('wuhu').getPublicUrl('galerie/' + f.name).data.publicUrl }));
     },
     deleteImage: async path => ok(await sb.storage.from('wuhu').remove([path])),
+    // ----- Photos des events (envoyées par les membres) -----
+    listPhotos: async cid => ok(await sb.from('wuhu_photos').select('*, likes:wuhu_photo_likes(user_id)').eq('competition_id', cid).order('created_at', { ascending: false })),
+    async addPhoto(cid, uid, blob, caption) {
+      const path = `photos/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+      ok(await sb.storage.from('wuhu').upload(path, blob, { contentType: 'image/jpeg', upsert: false }));
+      const url = sb.storage.from('wuhu').getPublicUrl(path).data.publicUrl;
+      return ok(await sb.from('wuhu_photos').insert({ competition_id: cid, user_id: uid, path, url, caption: caption || null }).select().single());
+    },
+    async deletePhoto(ph) {
+      await sb.storage.from('wuhu').remove([ph.path]);
+      ok(await sb.from('wuhu_photos').delete().eq('id', ph.id));
+    },
+    likePhoto: async (pid, uid, on) => ok(on ? await sb.from('wuhu_photo_likes').insert({ photo_id: pid, user_id: uid })
+      : await sb.from('wuhu_photo_likes').delete().eq('photo_id', pid).eq('user_id', uid)),
 
     // ----- Thème du site (fond d'écran, icônes) : lisible même sans être connecté -----
     async getTheme() {
@@ -208,6 +222,9 @@ function demoApi() {
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
+  const demoImg = (h, e) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${h},70%,60%)"/><text x="200" y="175" font-size="90" text-anchor="middle">${e}</text></svg>`);
+  let photos = [['🎳', 200, 'La finale de bowling !', ['u1', 'u2', 'u3']], ['🍕', 30, 'Pause pizza', ['u2']], ['🏆', 50, 'Les champions', ['u1', 'u2', 'u3', 'u4', 'u5']], ['🎮', 260, null, []], ['🎾', 120, 'Match serré', ['u4']]]
+    .map(([e, h, caption, likes], i) => ({ id: 'ph' + i, competition_id: 'c1', user_id: 'u' + (i + 1), path: 'x', url: demoImg(h, e), caption, created_at: new Date(Date.now() - i * 3e6).toISOString(), likes: likes.map(user_id => ({ user_id })) }));
   let compRegs = [];
   const settings = {};
   let lid = 1;
@@ -281,6 +298,14 @@ function demoApi() {
       return url;
     },
     async listGallery() { return clone(gallery); },
+    async listPhotos(cid) { return clone(photos.filter(p => p.competition_id === cid)); },
+    async addPhoto(cid, uid, blob, caption) {
+      const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+      const ph = { id: 'ph' + Date.now() + Math.random(), competition_id: cid, user_id: uid, path: 'x', url, caption, created_at: new Date().toISOString(), likes: [] };
+      photos.unshift(ph); return clone(ph);
+    },
+    async deletePhoto(ph) { photos = photos.filter(p => p.id !== ph.id); },
+    async likePhoto(pid, uid, on) { const p = photos.find(x => x.id === pid); p.likes = p.likes.filter(l => l.user_id !== uid); if (on) p.likes.push({ user_id: uid }); },
     async deleteImage(path) { gallery = gallery.filter(g => g.path !== path); },
     async getTheme() { return clone(settings); },
     async compMembers(cid) { return clone(compRegs.filter(r => r.competition_id === cid)); },

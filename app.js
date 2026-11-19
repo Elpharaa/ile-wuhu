@@ -591,7 +591,7 @@ async function pageCompetition(id, tab = 'apercu') {
   });
   const ranking = [...totals.entries()].filter(([u]) => people.has(u)).sort((a, b) => b[1].points - a[1].points);
 
-  const tabs = [['apercu', 'Vue d\'ensemble'], ...tours.map(t => [t.id, t.name])];
+  const tabs = [['apercu', 'Vue d\'ensemble'], ['photos', '📸 Photos'], ...tours.map(t => [t.id, t.name])];
   const regIds = (regs || []).map(r => r.user_id);
   const registered = regIds.includes(me.id);
   const openTours = tours.filter(t => t.status === 'open');
@@ -665,9 +665,9 @@ async function pageCompetition(id, tab = 'apercu') {
   };
   const show = k => {
     app.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
-    if (k === 'apercu') showOverview(); else showTournament(k);
+    if (k === 'apercu') showOverview(); else if (k === 'photos') showPhotos(body, c, people); else showTournament(k);
   };
-  show(tours.some(t => t.id === tab) ? tab : 'apercu');
+  show(tours.some(t => t.id === tab) || tab === 'photos' ? tab : 'apercu');
   app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
 
   $('#add-t')?.addEventListener('click', () => tournamentForm(null, id));
@@ -1545,6 +1545,71 @@ async function pageLeaderboard() {
   app.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
+  }));
+}
+
+// ---------- Photos des events ----------
+// Réduit une photo avant l'envoi (max 1600 px, JPEG) : rapide sur mobile et léger à stocker
+async function shrinkPhoto(file) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+  const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  URL.revokeObjectURL(img.src);
+  return new Promise(res => cv.toBlob(res, 'image/jpeg', .82));
+}
+async function showPhotos(body, c, people) {
+  body.innerHTML = '<div class="loading">Chargement…</div>';
+  const me = state.me;
+  const list = (await safe(() => api.listPhotos(c.id))) || [];
+  const who = id => people.get(id) || { id, username: '?' };
+  const likes = p => (p.likes || []).length, liked = p => (p.likes || []).some(l => l.user_id === me.id);
+  const top = [...list].filter(p => likes(p) > 0).sort((a, b) => likes(b) - likes(a)).slice(0, 3);
+  const tile = (p, big) => `<button class="ph ${big ? 'big' : ''}" data-ph="${esc(p.id)}">
+      <img src="${esc(p.url)}" alt="${esc(p.caption || 'Photo')}" loading="lazy">
+      <span class="ph-meta">${avatarImg(who(p.user_id), 'av xs')}<span class="ph-like ${liked(p) ? 'on' : ''}">❤️ ${likes(p)}</span></span>
+      ${big ? `<span class="ph-cap">${esc(p.caption || '')}</span>` : ''}
+    </button>`;
+  body.innerHTML = `
+    <section>
+      <div class="page-head"><h2>📸 Photos de l'event</h2>
+        <label class="btn primary sm ph-add">+ Ajouter des photos<input type="file" accept="image/*" multiple id="ph-file" hidden></label></div>
+      <p class="small">Partage tes photos de ${esc(c.name)} ! Mets un ❤️ à tes préférées : les plus aimées deviennent les moments forts.</p>
+      <div id="ph-progress"></div>
+      ${top.length ? `<h3 class="ph-h">⭐ Les moments forts</h3><div class="ph-top">${top.map((p, i) => `<div class="ph-rank r${i + 1}">${tile(p, true)}<b>${['🥇', '🥈', '🥉'][i]}</b></div>`).join('')}</div>` : ''}
+      ${list.length ? `<h3 class="ph-h">Toutes les photos <small class="muted">${list.length}</small></h3>` : ''}
+      <div class="ph-grid">${list.map(p => tile(p)).join('') || '<p class="empty">Aucune photo pour l\'instant : sois le premier à en partager une !</p>'}</div>
+    </section>`;
+  $('#ph-file', body).addEventListener('change', e => safe(async () => {
+    const files = [...e.target.files].filter(f => f.type.startsWith('image/')).slice(0, 20);
+    if (!files.length) return;
+    const caption = files.length === 1 ? (prompt('Une petite légende ? (facultatif)') || '').slice(0, 200) : '';
+    const prog = $('#ph-progress', body);
+    for (let i = 0; i < files.length; i++) {
+      prog.innerHTML = `<div class="ph-up">⏳ Envoi de la photo ${i + 1} / ${files.length}…</div>`;
+      await api.addPhoto(c.id, me.id, await shrinkPhoto(files[i]), caption);
+    }
+    toast(files.length > 1 ? `${files.length} photos ajoutées !` : 'Photo ajoutée !');
+    showPhotos(body, c, people);
+  }));
+  body.querySelectorAll('[data-ph]').forEach(b => b.addEventListener('click', () => {
+    const p = list.find(x => x.id === b.dataset.ph);
+    const box = openModal(`
+      <div class="ph-view"><img src="${esc(p.url)}" alt=""></div>
+      ${p.caption ? `<p class="ph-vcap">${esc(p.caption)}</p>` : ''}
+      <div class="ph-vbar">
+        <a href="#/profil/${esc(p.user_id)}" class="ph-by">${avatarImg(who(p.user_id), 'av sm')} ${uname(who(p.user_id))}</a>
+        <button class="btn ${liked(p) ? 'primary' : 'ghost'} sm" id="ph-like">❤️ ${likes(p)}</button>
+        ${p.user_id === me.id || me.is_admin ? '<button class="btn danger sm" id="ph-del">Supprimer</button>' : ''}
+        <button class="btn ghost sm" data-close>Fermer</button>
+      </div>`, 'ph-modal');
+    $('#ph-like', box).addEventListener('click', () => safe(async () => {
+      await api.likePhoto(p.id, me.id, !liked(p)); closeModal(); showPhotos(body, c, people);
+    }));
+    $('#ph-del', box)?.addEventListener('click', () => safe(async () => {
+      if (!confirm('Supprimer cette photo ?')) return;
+      await api.deletePhoto(p); closeModal(); toast('Photo supprimée'); showPhotos(body, c, people);
+    }));
   }));
 }
 
