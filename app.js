@@ -425,7 +425,6 @@ async function pageHome() {
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
     </section>
     <div id="daily-slot"></div>
-    ${islandMap()}
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -438,7 +437,6 @@ async function pageHome() {
       <div class="grid">${open.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi ouvert pour le moment.</p>'}</div>
     </section>` : ''}`;
   drawDaily();
-  drawIslanders();
 }
 
 
@@ -2104,7 +2102,7 @@ async function pageSettings(tab = 'fond') {
   if (state.me?.in_guild) await Promise.all([loadRoles(), loadColors(), loadBalances()]);
   refreshAchCount();
   // présence : qui est sur le site en ce moment
-  if (state.me?.in_guild && api.presence) api.presence(state.me.id, ids => { state.online = new Set(ids); drawIslanders(); });
+  // carte de l'île mise de côté pour plus tard : if (state.me?.in_guild && api.presence) api.presence(state.me.id, ids => { state.online = new Set(ids); drawIslanders(); });
   if (state.me?.is_admin) settlePending();
   window.addEventListener('hashchange', route);
   route();
