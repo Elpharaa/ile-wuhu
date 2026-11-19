@@ -1622,3 +1622,22 @@ body.with-dock footer { margin-bottom: 96px; }
 @media (max-width: 520px) { .sp-card { text-align: left; } .sp-t { align-items: flex-start; } }
 @media (prefers-reduced-motion: reduce) { .sp-card::after { animation: none; } }
 @media (max-width: 520px) { .sp-card small { margin-left: auto; text-align: right; } }
+
+/* Jour 7 de la récompense : double rubis qui brille */
+.dr-big { display: inline-flex; gap: 0; filter: drop-shadow(0 0 6px rgba(224,36,94,.55)); animation: drPulse 1.6s ease-in-out infinite; }
+.dr-big > :nth-child(2) { margin-left: -6px; transform: rotate(14deg) scale(.85); }
+@keyframes drPulse { 50% { transform: scale(1.12); } }
+.burst .ruby, .burst img { width: 20px; height: 20px; }
+
+/* Pied de page : bouton Discord */
+footer, body.has-bg footer { background: none; width: auto; padding: 20px 16px 24px; }
+footer a.foot-discord { display: inline-flex; align-items: center; gap: 12px; padding: 10px 18px 10px 12px; border-radius: 18px;
+  background: linear-gradient(135deg, #5865f2, #7983f5); color: #fff; text-decoration: none; box-shadow: 0 6px 18px rgba(88,101,242,.35);
+  transition: transform .15s ease, box-shadow .15s ease; text-align: left; }
+footer a.foot-discord:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(88,101,242,.45); }
+.foot-discord svg { width: 34px; height: 34px; padding: 6px; border-radius: 12px; background: rgba(255,255,255,.18); flex-shrink: 0; }
+.foot-discord span { display: flex; flex-direction: column; line-height: 1.15; }
+.foot-discord small { font-size: .72rem; opacity: .85; font-weight: 700; }
+.foot-discord b { font-size: .95rem; font-weight: 800; }
+.foot-discord i { font-style: normal; font-weight: 900; opacity: .8; transition: transform .15s ease; }
+.foot-discord:hover i { transform: translateX(3px); }

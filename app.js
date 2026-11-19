@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120a';
+import { api, DEMO } from './api.js?v=20261120b';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120a';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120b';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2617,7 +2617,7 @@ async function drawDaily() {
       ${claimed ? '<span class="pill-info">✓ Récupérée</span>' : `<button class="btn primary" id="daily-claim">Récupérer ${rubis(DAILY[pos])}</button>`}
     </div>
     <div class="daily-week">${DAILY.map((r, i) => `<div class="dday ${i < pos || (claimed && i === pos) ? 'got' : i === pos ? 'now' : ''} ${i === 6 ? 'big' : ''}">
-      <small>Jour ${i + 1}</small><span>${i === 6 ? '💎' : I.rubis}</span><b>${r}</b></div>`).join('')}</div>
+      <small>Jour ${i + 1}</small><span class="${i === 6 ? 'dr-big' : ''}">${I.rubis}${i === 6 ? I.rubis : ''}</span><b>${r}</b></div>`).join('')}</div>
     ${ready.length ? `<a href="#/succes" class="ach-ready">🏅 ${ready.length} succès à récupérer ! <span>Voir →</span></a>` : ''}
   </section>`;
   $('#daily-claim', slot)?.addEventListener('click', e => safe(async () => {
@@ -2633,7 +2633,7 @@ async function drawDaily() {
 function burst(el) {
   const r = el.getBoundingClientRect();
   for (let i = 0; i < 14; i++) {
-    const s = document.createElement('span'); s.className = 'burst'; s.textContent = '💎';
+    const s = document.createElement('span'); s.className = 'burst'; s.innerHTML = I.rubis;
     const a = (i / 14) * Math.PI * 2, d = 60 + (i % 3) * 25;
     s.style.cssText = `left:${r.left + r.width / 2}px;top:${r.top + r.height / 2}px;--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px`;
     document.body.appendChild(s); setTimeout(() => s.remove(), 900);
@@ -2973,7 +2973,7 @@ async function pageBtRoom(arg) {
       body.innerHTML = `<div class="bt-lobby">
         <p>Partage le code <b class="bt-big">${esc(r.code)}</b> ou le lien pour inviter tes amis :</p>
         <div class="bt-link"><input readonly value="${esc(link)}"><button class="btn ghost sm" id="r-copy">📋 Copier</button></div>
-        <p class="small">${r.total} musiques · 20 s par extrait · une seule réponse par musique · seul le plus rapide marque le point · 🥇 +15 💎 🥈 +8 🥉 +4 (3 parties récompensées par jour)</p>
+        <p class="small">${r.total} musiques · 20 s par extrait · une seule réponse par musique · seul le plus rapide marque le point · 🥇 +15 ${I.rubis} 🥈 +8 🥉 +4 (3 parties récompensées par jour)</p>
         ${ready ? '<p class="bt-ready">✅ Son activé, tu es prêt !</p>' : '<button class="btn primary big" id="r-ready">🔊 Je suis prêt (activer le son)</button>'}
         ${host ? `<button class="btn primary big" id="r-start" ${st.players.length < 2 ? 'disabled' : ''}>▶️ Lancer la partie ${st.players.length < 2 ? '(il faut 2 joueurs)' : `(${st.players.length} joueurs)`}</button>` : '<p class="muted">L\'hôte 👑 lancera la partie quand tout le monde est là.</p>'}
       </div>`;
@@ -2993,7 +2993,7 @@ async function pageBtRoom(arg) {
       body.innerHTML = `<div class="bt-end"><h2>🏁 Partie terminée !</h2>
         <div class="bt-podium">${st.players.slice(0, 3).map((p, i) => { const m = who(p.user_id), x = rw.get(p.user_id);
           return `<div class="bt-pod p${i + 1}">${[I.medal1, I.medal2, I.medal3][i]}${avatar(m, 'av lg')}<b>${uname(m)}</b><span>${p.score} pt${p.score > 1 ? 's' : ''}</span>
-            ${x?.rubis ? `<small>+${x.rubis} 💎 +${x.rubis} 🍄</small>` : x?.capped ? '<small>limite du jour atteinte</small>' : ''}</div>`; }).join('')}</div>
+            ${x?.rubis ? `<small>+${x.rubis} ${I.rubis} +${x.rubis} ${I.points}</small>` : x?.capped ? '<small>limite du jour atteinte</small>' : ''}</div>`; }).join('')}</div>
         <button class="btn primary" id="r-again">🔁 Nouveau salon</button> <a class="btn ghost" href="#/blindtest">Retour</a></div>`;
       if (st.players[0]?.user_id === state.me.id) confetti(80);
       $('#r-again').addEventListener('click', () => safe(async () => { const id = await api.btRoomCreate(r.total); location.hash = `#/blindtest/salon/${id}`; }));
@@ -3092,7 +3092,7 @@ function showWelcome(gift) {
         <a href="#/tournois" data-go>🏆<b>Tournois</b><small>Inscris-toi aux compétitions</small></a>
         <a href="#/membres" data-go>⚔️<b>Défis</b><small>Défie n'importe quel membre</small></a>
         <a href="#/quiz" data-go>🧠<b>Quiz</b><small>Une question par jour</small></a>
-        <a href="#/boutique" data-go>🎁<b>Boutique</b><small>Dépense tes 💎</small></a>
+        <a href="#/boutique" data-go>🎁<b>Boutique</b><small>Dépense tes ${I.rubis}</small></a>
       </div>
       <p class="small">🏅 Ton premier succès <b>« Bienvenue sur l'île »</b> t'attend dans <a href="#/succes" data-go>Mes succès</a> !</p>
       <button class="btn primary wl-go">Explorer l'île →</button>
@@ -3189,7 +3189,7 @@ async function pageDuels() {
     const res = await api.duelAct(id, a, b.dataset.w);
     if (res?.status === 'done' && res.reward) {
       const rw = res.reward;
-      toast(rw.win || rw.lose ? `Défi terminé ! 🎁 Gagnant +${rw.win} 💎 · perdant +${rw.lose} 💎` : `Défi terminé${rw.note ? ` (${rw.note})` : ''}`);
+      toast(rw.win || rw.lose ? `Défi terminé ! 🎁 Gagnant +${rw.win} rubis · perdant +${rw.lose} rubis` : `Défi terminé${rw.note ? ` (${rw.note})` : ''}`);
       await loadBalances(); renderNav();
     } else toast({ accepted: a === 'no' ? 'Contesté : indiquez à nouveau le gagnant' : 'Défi accepté ! Bon match ⚔️', claimed: 'Victoire déclarée : ton adversaire doit confirmer', declined: 'Défi refusé', cancelled: 'Défi annulé' }[res?.status] || 'OK');
     refreshDuelCount(); pageDuels();
