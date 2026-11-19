@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119k';
+import { api, DEMO } from './api.js?v=20261119m';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119k';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119m';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2888,8 +2888,8 @@ function btMultiCard() {
   return `<div class="quiz-head"><h2>👥 Multijoueur</h2></div>
     <p>Joue avec tes amis en direct : <b>même musique au même moment</b>, le plus rapide marque le point ! <span class="muted">(2 joueurs minimum)</span></p>
     <div class="bt-multi">
-      <div class="bt-mbox"><b>Créer un salon</b>
-        <div class="seg bt-n">${[5, 10, 15].map(n => `<button type="button" data-n="${n}" class="${n === 10 ? 'on' : ''}">${n} musiques</button>`).join('')}</div>
+      <div class="bt-mbox"><b>Créer un salon</b><span class="small muted">Nombre de musiques :</span>
+        <div class="seg bt-n">${[5, 10, 15].map(n => `<button type="button" data-n="${n}" class="${n === 10 ? 'on' : ''}">${n} 🎵</button>`).join('')}</div>
         <button class="btn primary" id="bt-create">🎮 Créer un salon</button></div>
       <div class="bt-mbox"><b>Rejoindre avec un code</b>
         <div class="bt-join"><input id="bt-code" maxlength="4" placeholder="ABCD" autocomplete="off"><button class="btn primary" id="bt-join">Rejoindre</button></div></div>

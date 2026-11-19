@@ -1590,3 +1590,15 @@ body.with-dock footer { margin-bottom: 96px; }
 .bt-pod.p1 { order: 2; background: #fff3c4; padding-bottom: 24px; } .bt-pod.p2 { order: 1; } .bt-pod.p3 { order: 3; }
 .bt-pod small { color: #1f9d55; font-weight: 700; }
 @media (max-width: 760px) { .bt-room-grid { grid-template-columns: 1fr; } .bt-room-side { order: -1; } .bt-multi { grid-template-columns: 1fr; } }
+/* ---------- Correctifs mobile : multijoueur + listes admin ---------- */
+.bt-multi > * { min-width: 0; }
+.bt-mbox .seg.bt-n { align-self: stretch; display: flex; }
+.bt-mbox .seg.bt-n button { flex: 1; min-width: 0; justify-content: center; padding: 8px 6px; white-space: nowrap; }
+.bt-mbox > .btn { width: 100%; justify-content: center; }
+.bt-join .btn { flex: none; }
+@media (max-width: 640px) {
+  .qa-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 8px; }
+  .qa-row .qa-day { grid-column: 1 / -1; width: auto; }
+  .qa-row .qa-q { grid-column: 1 / -1; }
+  .qa-row .btn:first-of-type { grid-column: 2; }
+}
