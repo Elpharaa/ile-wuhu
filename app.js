@@ -342,6 +342,7 @@ async function route() {
     case 'boutique': return pageShop();
     case 'succes': return pageAchievements();
     case 'pantheon': return pagePantheon();
+    case 'soiree': return pageParty(parts[1]);
     case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
   }
@@ -424,6 +425,7 @@ async function pageHome() {
       <h1>Salut ${uname(me)} !</h1>
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
     </section>
+    ${partyBanner(liveComps)}
     <div id="daily-slot"></div>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
@@ -601,6 +603,7 @@ async function pageCompetition(id, tab = 'apercu') {
       <h1>${esc(c.name)}</h1>
       ${c.starts_at ? `<p class="meta">${I.date} ${esc(fmtDate(c.starts_at))}</p>` : ''}
       ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
+      ${st !== 'done' ? `<a href="#/soiree/${esc(c.id)}" class="party-btn">${st === 'running' ? '<span class="live-dot"></span> Suivre la soirée en direct' : '🎉 Mode soirée'} <span>→</span></a>` : ''}
       <div class="actions left comp-join">
         ${registered
           ? `<span class="pill-info">${I.inscription} Tu es inscrit à la compétition</span><button class="btn ghost sm" id="leave-c">Me désinscrire</button>`
@@ -1091,6 +1094,8 @@ async function pageTournament(id) {
     });
   }
 
+  if (t.bracket?.draw) maybePlayDraw(t, people);
+
   // Mise à jour en direct quand un admin entre un score
   let timer;
   unsubscribe = api.subscribe(id, () => { clearTimeout(timer); timer = setTimeout(() => { if (modal.classList.contains('hidden')) reload(); }, 400); });
@@ -1103,11 +1108,13 @@ function launchDialog(t, placement, reload) {
     <h2>Lancer « ${esc(t.name)} »</h2>
     <p>${n} participants · ${FORMAT[t.format]}. Les inscriptions seront fermées.</p>
     <p class="small">L'arbre lancé sera celui de l'aperçu (tu peux encore le modifier après le lancement).</p>
-    <label class="radio"><input type="checkbox" id="mix"> Mélanger au hasard juste avant de lancer</label>
+    <label class="radio"><input type="checkbox" id="mix" checked> 🎰 Tirage au sort en direct (les places sont tirées au hasard sous les yeux de tous)</label>
     <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="go">C'est parti !</button></div>`);
   $('#go', box).addEventListener('click', () => safe(async () => {
-    const pl = $('#mix', box).checked ? placementFor(shuffled(placement.filter(Boolean))) : placement;
+    const live = $('#mix', box).checked;
+    const pl = live ? placementFor(shuffled(placement.filter(Boolean))) : placement;
     const bracket = bracketFromPlacement(pl, t.format);
+    if (live) bracket.draw = { at: Date.now() };
     await api.updateTournament(t.id, { status: 'running', bracket, seeding: pl, winner_id: null });
     closeModal(); toast('Le tournoi commence !'); reload();
   }));
@@ -1539,6 +1546,164 @@ async function pageLeaderboard() {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
   }));
+}
+
+// ---------- Tirage au sort en direct ----------
+// L'admin lance : le placement est tiré, enregistré, puis tout le monde (sur la page du tournoi
+// ou en mode soirée) voit les boules sortir de la machine une par une.
+const seenDraws = new Set();
+function maybePlayDraw(t, people) {
+  const at = t.bracket?.draw?.at;
+  if (!at || Date.now() - at > 3 * 60e3 || seenDraws.has(t.id + at)) return;
+  seenDraws.add(t.id + at);
+  playDraw(t, people);
+}
+function playDraw(t, people) {
+  const first = t.bracket.matches.filter(m => m.b === 'W' && m.r === 1);
+  const order = first.flatMap(m => m.slots.map(s => s.p || null));
+  const balls = order.filter(Boolean);
+  const who = id => people.get(id) || { id, username: '?' };
+  const box = openModal(`
+    <div class="draw">
+      <div class="draw-head"><small>🎰 Tirage au sort en direct</small><h2>${esc(t.name)}</h2></div>
+      <div class="drum"><div class="drum-in">${balls.map((id, i) => `<span class="ball" data-id="${esc(id)}" style="--i:${i};--x:${(i * 37) % 70 + 8}%;--y:${(i * 53) % 60 + 12}%">${avatarImg(who(id), 'av sm')}</span>`).join('')}</div><div class="drum-chute"></div></div>
+      <div class="draw-out" id="draw-out"></div>
+      <div class="draw-pairs">${first.map((m, i) => `<div class="dpair" data-k="${i}"><span class="dp" data-s="0">?</span><b>VS</b><span class="dp" data-s="1">?</span></div>`).join('')}</div>
+      <div class="actions center"><button class="btn ghost sm" id="draw-skip">Passer ⏭</button></div>
+    </div>`, 'draw-modal');
+  let k = 0, stop = false;
+  const pairs = box.querySelectorAll('.dpair');
+  const fill = (i, quick) => {
+    const id = order[i], pair = pairs[Math.floor(i / 2)], slot = pair.querySelectorAll('.dp')[i % 2];
+    slot.innerHTML = id ? `${avatarImg(who(id), 'av xs')} ${uname(who(id))}` : '<i class="muted">Exempt</i>';
+    slot.classList.add('in');
+    if (i % 2 === 1) pair.classList.add('done');
+    if (id) box.querySelector(`.ball[data-id="${CSS.escape(id)}"]`)?.classList.add('gone');
+    if (!quick && id) {
+      const out = $('#draw-out', box);
+      out.innerHTML = `<div class="draw-pick">${avatarImg(who(id), 'av lg')}<strong>${esc(who(id).username)}</strong></div>`;
+    }
+    if (!quick) pair.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  const step = () => {
+    if (stop || !document.body.contains(box)) return;
+    if (k >= order.length) return finish();
+    fill(k, false); k++;
+    setTimeout(step, order[k - 1] ? 1300 : 300);
+  };
+  const finish = () => {
+    stop = true;
+    for (; k < order.length; k++) fill(k, true);
+    $('#draw-out', box).innerHTML = '<div class="draw-done">🏁 Le tirage est terminé, que les matchs commencent !</div>';
+    box.querySelector('.drum').classList.add('empty');
+    confetti();
+    const b = $('#draw-skip', box); b.textContent = 'Voir l\'arbre'; b.onclick = () => closeModal();
+  };
+  $('#draw-skip', box).addEventListener('click', finish, { once: true });
+  setTimeout(step, 1600);
+}
+// pluie de confettis plein écran
+function confetti(n = 80) {
+  const layer = document.createElement('div'); layer.className = 'confetti';
+  layer.innerHTML = Array.from({ length: n }, (_, i) => `<i style="--x:${Math.random() * 100}%;--d:${(Math.random() * .8).toFixed(2)}s;--t:${(2 + Math.random() * 1.5).toFixed(2)}s;--h:${Math.floor(Math.random() * 360)};--r:${Math.floor(Math.random() * 360)}deg"></i>`).join('');
+  document.body.appendChild(layer); setTimeout(() => layer.remove(), 4200);
+}
+
+// ---------- Mode soirée Wuhu Contest ----------
+// Bandeau d'accueil : compétition en cours, ou qui commence dans moins de 24 h
+function partyBanner(comps) {
+  const now = Date.now();
+  const c = comps.find(x => compStatus(x) === 'running') || comps.find(x => x.starts_at && +new Date(x.starts_at) > now && +new Date(x.starts_at) - now < 864e5);
+  if (!c) return '';
+  const live = compStatus(c) === 'running';
+  return `<a href="#/soiree/${esc(c.id)}" class="party-banner ${live ? 'live' : ''}">
+    <span class="pb-ic">${live ? '<span class="live-dot"></span>' : '🎉'}</span>
+    <span class="pb-tx"><b>${live ? 'EN DIRECT' : 'C\'est bientôt'} · ${esc(c.name)}</b><small>${live ? 'Les matchs, les résultats et le classement en direct' : `Début ${esc(fmtDate(c.starts_at))}`}</small></span>
+    <span class="pb-go">Mode soirée →</span></a>`;
+}
+let partyTimers = [];
+async function pageParty(cid) {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const [c, members] = await Promise.all([safe(() => api.getCompetition(cid)), safe(() => api.listMembers())]);
+  if (!c) { app.innerHTML = '<p class="empty">Compétition introuvable.</p>'; return; }
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const who = id => people.get(id) || { id, username: '?' };
+  let prevDone = null;
+  const feed = [];
+  partyTimers.forEach(clearInterval); partyTimers = [];
+
+  const draw = async () => {
+    if (!location.hash.startsWith('#/soiree/')) return;
+    const tours = (await safe(() => api.tournamentsOf(cid))) || [];
+    const ledger = await safe(() => api.ledgerForTournaments(tours.map(t => t.id))) || [];
+    const tot = new Map(); ledger.forEach(l => tot.set(l.user_id, (tot.get(l.user_id) || 0) + (l.points || 0)));
+    const rank = [...tot].filter(([u]) => people.has(u)).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const live = [], doneNow = new Map();
+    tours.forEach(t => {
+      if (!t.bracket) return;
+      maybePlayDraw(t, people);
+      const st = resolveBracket(t.bracket).state;
+      t.bracket.matches.forEach(m => {
+        const s = st[m.id];
+        if (s.playable && !s.done && t.status === 'running') live.push({ t, m, s });
+        if (s.playable && s.done) doneNow.set(t.id + m.id, { t, m, s });
+      });
+    });
+    // nouveaux résultats depuis l'ouverture de la page : on fête ça
+    if (prevDone) {
+      const fresh = [...doneNow].filter(([k]) => !prevDone.has(k)).map(([, v]) => v);
+      if (fresh.length) { feed.unshift(...fresh); confetti(60); }
+    } else feed.push(...[...doneNow.values()].slice(-6).reverse());
+    prevDone = doneNow;
+    const start = c.starts_at ? new Date(c.starts_at) : null;
+    const before = start && start > new Date();
+    const running = tours.some(t => t.status === 'running');
+    const finished = tours.length && tours.every(t => t.status === 'done');
+    const line = x => {
+      const [a, b] = x.s.players, sc = x.s.result?.s;
+      return `<div class="pm ${x.s.done ? 'done' : 'live'}">
+        <span class="pm-t">${esc(x.t.name)} · ${esc(roundTitle(x.t.bracket, x.m.b, x.m.r))}</span>
+        <div class="pm-row">
+          <span class="pm-p ${x.s.done && x.s.winner === a ? 'win' : ''}">${avatarImg(who(a), 'av sm')}${uname(who(a))}</span>
+          <b class="pm-sc">${sc ? `${esc(sc[0])} – ${esc(sc[1])}` : x.s.done ? '✓' : 'VS'}</b>
+          <span class="pm-p r ${x.s.done && x.s.winner === b ? 'win' : ''}">${uname(who(b))}${avatarImg(who(b), 'av sm')}</span>
+        </div></div>`;
+    };
+    const el = $('#party'); if (!el) return;
+    el.innerHTML = `
+      <div class="party-top">
+        <a href="#/competition/${esc(c.id)}" class="party-back">←</a>
+        <div><small>${running ? '<span class="live-dot"></span> EN DIRECT' : finished ? '🏁 TERMINÉ' : '🎉 SOIRÉE'}</small><h1>${esc(c.name)}</h1></div>
+        <div class="party-clock" id="party-clock"></div>
+      </div>
+      ${before && !running ? `<div class="party-count"><small>Début dans</small><div id="countdown" data-at="${start.getTime()}"></div></div>` : ''}
+      <div class="party-grid">
+        <section class="pbox"><h2>⚔️ Matchs en cours <span class="pill-info">${live.length}</span></h2>
+          ${live.map(line).join('') || `<p class="pempty">${finished ? 'Tous les matchs sont joués !' : 'Aucun match en cours pour l\'instant.'}</p>`}</section>
+        <section class="pbox"><h2>📣 Derniers résultats</h2>
+          ${feed.slice(0, 8).map(line).join('') || '<p class="pempty">Les résultats arriveront ici en direct.</p>'}</section>
+        <section class="pbox"><h2>🏆 Classement de la soirée</h2>
+          ${rank.map(([u, n], i) => `<div class="prank r${i + 1}"><span>${['🥇', '🥈', '🥉'][i] || i + 1}</span>${avatarImg(who(u), 'av sm')}<b>${uname(who(u))}</b><em>${n} pts</em></div>`).join('') || '<p class="pempty">Pas encore de points.</p>'}</section>
+      </div>`;
+    tick();
+  };
+  const tick = () => {
+    const ck = $('#party-clock'); if (ck) ck.textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const cd = $('#countdown'); if (cd) {
+      let s = Math.max(0, Math.floor((+cd.dataset.at - Date.now()) / 1000));
+      const d = Math.floor(s / 86400); s %= 86400;
+      const p = n => String(n).padStart(2, '0');
+      cd.innerHTML = `${d ? `<span><b>${d}</b>j</span>` : ''}<span><b>${p(Math.floor(s / 3600))}</b>h</span><span><b>${p(Math.floor(s % 3600 / 60))}</b>min</span><span><b>${p(s % 60)}</b>s</span>`;
+    }
+  };
+  app.innerHTML = `<div class="party" id="party"></div>`;
+  await draw();
+  // mises à jour en direct (+ filet de sécurité toutes les 20 s)
+  const tours = (await safe(() => api.tournamentsOf(cid))) || [];
+  let tm;
+  const subs = tours.map(t => api.subscribe(t.id, () => { clearTimeout(tm); tm = setTimeout(draw, 500); }));
+  unsubscribe = () => { subs.forEach(f => f && f()); partyTimers.forEach(clearInterval); partyTimers = []; };
+  partyTimers.push(setInterval(tick, 1000), setInterval(draw, 20000));
 }
 
 // ---------- Carte de l'île ----------
