@@ -1153,3 +1153,5 @@ body.with-dock footer { margin-bottom: 96px; }
 .isl-mii:hover span, .isl-mii.me span { opacity: 1; }
 @keyframes mii-hop { to { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .spot-ic, .isl-mii .av.sm { animation: none; } .isl-mii { transition: none; } }
+.dday.got::after { top: -6px; right: -4px; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: .7rem; border-radius: 50%; background: var(--leaf); color: #fff; }
+.dday.got { opacity: 1; } .dday.got > * { opacity: .5; }
