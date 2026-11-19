@@ -1398,3 +1398,16 @@ body.with-dock footer { margin-bottom: 96px; }
 .pi-row select { flex: 1; }
 .pi-add { margin-bottom: 6px; }
 @media (max-width: 640px) { .party-deco img { max-width: 24vw; } }
+/* images de soirée : position libre (centre en %) */
+.party-deco .pd { position: absolute; transform: translate(-50%, -50%); display: block; }
+.party-deco .pd img { position: static; width: 100%; max-width: none; display: block; }
+.party-wrap.placing .party-deco { pointer-events: auto; z-index: 5; background: rgba(0,0,0,.18); }
+.party-wrap.placing .pd { cursor: grab; touch-action: none; outline: 2px dashed rgba(255,255,255,.7); outline-offset: 4px; border-radius: 10px; }
+.party-wrap.placing .pd.sel { outline: 3px solid #ffd23f; }
+.party-wrap.placing .pd img { animation-play-state: paused; }
+.pd-bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 1000; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 14px; border-radius: 16px; background: #fff; color: #1d2b3a; box-shadow: 0 10px 30px rgba(0,0,0,.3); max-width: calc(100vw - 20px); font-weight: 600; }
+.pd-bar small { font-weight: 400; opacity: .75; }
+.pd-sz { display: inline-flex; gap: 4px; }
+@media (max-width: 640px) { .party-deco .pd { max-width: 26vw; } }
+@media (max-width: 640px) { .pd-bar small { display: none; } .pd-bar { bottom: 80px; } }

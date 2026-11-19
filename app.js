@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119d';
+import { api, DEMO } from './api.js?v=20261119e';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119d';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119e';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2176,7 +2176,7 @@ async function pageParty(cid) {
     el.innerHTML = `
       <div class="party-top">
         <a href="#/competition/${esc(c.id)}" class="party-back">←</a>
-        ${state.me.is_admin ? '<button type="button" class="party-back party-imgs" id="party-imgs" title="Mes images de soirée">🖼️</button>' : ''}
+        ${state.me.is_admin ? '<button type="button" class="party-back party-imgs" id="party-imgs" title="Mes images de soirée">🖼️</button><button type="button" class="party-back party-imgs" id="party-place" title="Placer les images">✋</button>' : ''}
         <div><small>${running ? '<span class="live-dot"></span> EN DIRECT' : finished ? '🏁 TERMINÉ' : '🎉 SOIRÉE'}</small><h1>${esc(c.name)}</h1></div>
         <div class="party-clock" id="party-clock"></div>
       </div>
@@ -2190,13 +2190,14 @@ async function pageParty(cid) {
           ${rank.map(([u, n], i) => `<div class="prank r${i + 1}"><span>${['🥇', '🥈', '🥉'][i] || i + 1}</span>${avatarImg(who(u), 'av sm')}<b>${uname(who(u))}</b><em>${n} pts</em></div>`).join('') || '<p class="pempty">Pas encore de points.</p>'}</section>
       </div>`;
     $('#party-imgs')?.addEventListener('click', () => partyImagesDialog(c, drawDeco));
+    $('#party-place')?.addEventListener('click', () => partyPlaceMode(c, drawDeco));
     tick();
   };
   const drawDeco = () => {
     const box = $('#party-deco'); if (!box) return;
-    box.innerHTML = (c.party_images || []).slice(0, PARTY_SPOTS.length).map((im, i) => {
-      const p = PARTY_SPOTS[i], size = { s: 70, m: 110, l: 160 }[im.size] || 110;
-      return `<img src="${esc(im.url)}" alt="" style="${p};width:${size}px;animation-duration:${(2.2 + (i % 3) * .5).toFixed(1)}s;animation-delay:${(i * .35).toFixed(2)}s">`;
+    box.innerHTML = (c.party_images || []).slice(0, PARTY_MAX).map((im, i) => {
+      const [x, y] = partyPos(im, i), size = { s: 70, m: 110, l: 160, xl: 230 }[im.size] || 110;
+      return `<span class="pd" data-i="${i}" style="left:${x}%;top:${y}%;width:${size}px"><img src="${esc(im.url)}" alt="" draggable="false" style="animation-duration:${(2.2 + (i % 3) * .5).toFixed(1)}s;animation-delay:${(i * .35).toFixed(2)}s"></span>`;
     }).join('');
   };
   const tick = () => {
@@ -2220,30 +2221,94 @@ async function pageParty(cid) {
 }
 
 // Images perso du mode soirée : elles « respirent » (grossissent / rétrécissent) sur les bords de l'écran
-const PARTY_SPOTS = ['left:-14px;top:70px', 'right:-14px;top:70px', 'left:-14px;bottom:30px', 'right:-14px;bottom:30px',
-  'left:-20px;top:42%', 'right:-20px;top:42%', 'left:38%;bottom:-18px', 'left:46%;top:-16px'];
+// position = centre de l'image, en % de l'écran (x, y) ; sans position choisie, on prend une place par défaut
+const PARTY_MAX = 12;
+const PARTY_SPOTS = [[5, 14], [95, 14], [5, 88], [95, 88], [4, 50], [96, 50], [40, 95], [55, 4], [25, 6], [75, 95], [70, 6], [28, 94]];
+const partyPos = (im, i) => (Number.isFinite(im.x) && Number.isFinite(im.y)) ? [im.x, im.y] : PARTY_SPOTS[i % PARTY_SPOTS.length];
+
+// Mode « placer » : on glisse les images où on veut sur l'écran, puis on enregistre
+function partyPlaceMode(c, redraw) {
+  const wrap = $('.party-wrap'), box = $('#party-deco');
+  if (!wrap || !box || wrap.classList.contains('placing')) return;
+  if (!(c.party_images || []).length) { toast('Ajoute d\'abord des images avec 🖼️'); return; }
+  const orig = c.party_images;
+  const list = c.party_images.map((im, i) => { const [x, y] = partyPos(im, i); return { ...im, x, y }; });
+  wrap.classList.add('placing');
+  const bar = document.createElement('div');
+  bar.className = 'pd-bar';
+  bar.innerHTML = `<span>✋ Glisse tes images où tu veux · <small>touche une image puis ➕ / ➖ pour sa taille</small></span>
+    <span class="pd-sz"><button type="button" class="btn ghost sm" data-sz="-1">➖</button><button type="button" class="btn ghost sm" data-sz="1">➕</button></span>
+    <button type="button" class="btn ghost sm" id="pd-cancel">Annuler</button><button type="button" class="btn primary sm" id="pd-save">Enregistrer</button>`;
+  document.body.appendChild(bar);
+  const SZ = ['s', 'm', 'l', 'xl'];
+  let sel = 0;
+  const paint = () => {
+    c.party_images = list; redraw();
+    box.querySelectorAll('.pd').forEach(el => el.classList.toggle('sel', +el.dataset.i === sel));
+  };
+  paint();
+  let drag = null;
+  const down = e => {
+    const el = e.target.closest('.pd'); if (!el) return;
+    e.preventDefault(); sel = +el.dataset.i; drag = el;
+    box.querySelectorAll('.pd').forEach(x => x.classList.toggle('sel', x === el));
+    el.setPointerCapture?.(e.pointerId);
+  };
+  const move = e => {
+    if (!drag) return;
+    const r = box.getBoundingClientRect();
+    const x = Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100));
+    const y = Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100));
+    const im = list[+drag.dataset.i]; im.x = Math.round(x * 10) / 10; im.y = Math.round(y * 10) / 10;
+    drag.style.left = im.x + '%'; drag.style.top = im.y + '%';
+  };
+  const up = () => { drag = null; };
+  box.addEventListener('pointerdown', down);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  bar.querySelectorAll('[data-sz]').forEach(b => b.addEventListener('click', () => {
+    const im = list[sel]; if (!im) return;
+    const k = Math.min(SZ.length - 1, Math.max(0, SZ.indexOf(im.size || 'm') + +b.dataset.sz));
+    im.size = SZ[k]; paint();
+  }));
+  const stop = () => {
+    wrap.classList.remove('placing'); bar.remove();
+    box.removeEventListener('pointerdown', down);
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  $('#pd-cancel', bar).addEventListener('click', () => {
+    stop(); c.party_images = orig; redraw();
+  });
+  $('#pd-save', bar).addEventListener('click', () => safe(async () => {
+    await api.updateCompetition(c.id, { party_images: list });
+    stop(); c.party_images = list; redraw(); toast('Emplacements enregistrés 🎉');
+  }));
+}
 function partyImagesDialog(c, redraw) {
   let list = [...(c.party_images || [])];
   const box = openModal(`<h2>🖼️ Images de la soirée</h2>
-    <p class="small">Ajoute tes propres images (logo, mascotte, stickers…) : elles s'affichent autour de l'écran du mode soirée et grossissent / rétrécissent en rythme. 8 images maximum. Les PNG avec fond transparent rendent le mieux.</p>
+    <p class="small">Ajoute tes propres images (logo, mascotte, stickers…) : elles s'affichent autour de l'écran du mode soirée et grossissent / rétrécissent en rythme. 12 images maximum. Les PNG avec fond transparent et les GIF animés rendent le mieux. Ensuite, utilise ✋ pour les placer où tu veux.</p>
     <div class="pi-list" id="pi-list"></div>
     <label class="btn ghost sm pi-add">📷 Ajouter une image<input type="file" id="pi-file" accept="image/*" hidden></label>
     <div class="actions"><button type="button" class="btn ghost" data-close>Fermer</button><button type="button" class="btn primary" id="pi-save">Enregistrer</button></div>`);
   const render = () => {
     $('#pi-list', box).innerHTML = list.map((im, i) => `<div class="pi-row">
       <img src="${esc(im.url)}" alt="">
-      <select data-size="${i}">${[['s', 'Petite'], ['m', 'Moyenne'], ['l', 'Grande']].map(([v, l]) => `<option value="${v}" ${(im.size || 'm') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select data-size="${i}">${[['s', 'Petite'], ['m', 'Moyenne'], ['l', 'Grande'], ['xl', 'Très grande']].map(([v, l]) => `<option value="${v}" ${(im.size || 'm') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button type="button" class="btn danger sm" data-del="${i}">✕</button></div>`).join('') || '<p class="empty">Aucune image pour l\'instant.</p>';
     box.querySelectorAll('[data-size]').forEach(sel => sel.addEventListener('change', () => { list[+sel.dataset.size].size = sel.value; }));
     box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { list.splice(+b.dataset.del, 1); render(); }));
-    $('.pi-add', box).style.display = list.length >= PARTY_SPOTS.length ? 'none' : '';
+    $('.pi-add', box).style.display = list.length >= PARTY_MAX ? 'none' : '';
   };
   render();
   $('#pi-file', box).addEventListener('change', e => safe(async () => {
     const file = e.target.files?.[0]; if (!file) return;
     const png = file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp';
     // les PNG/GIF/WebP gardent leur transparence ; les photos sont allégées
-    const up = png && file.size < 3e6 ? file : new File([await shrinkPhoto(file)], 'soiree.jpg', { type: 'image/jpeg' });
+    if (file.type === 'image/gif' && file.size >= 6e6) { toast('GIF trop lourd (6 Mo max)'); return; }
+    // un GIF n'est jamais recompressé, sinon il perdrait son animation
+    const up = file.type === 'image/gif' || (png && file.size < 3e6) ? file : new File([await shrinkPhoto(file)], 'soiree.jpg', { type: 'image/jpeg' });
     const url = await api.uploadImage(up, 'soiree');
     list.push({ url, size: 'm' }); render(); e.target.value = '';
   }));
