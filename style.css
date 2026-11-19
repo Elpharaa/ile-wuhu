@@ -1533,3 +1533,32 @@ body.with-dock footer { margin-bottom: 96px; }
 .season-past { margin-top: 18px; } .sp-past { display: flex; flex-wrap: wrap; gap: 8px; }
 .sp-past a { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fff; box-shadow: var(--shadow); text-decoration: none; color: inherit; }
 @media (max-width: 520px) { .season-prizes { grid-template-columns: 1fr; } .sp-card { flex-direction: row; justify-content: flex-start; padding: 8px 12px; } }
+/* ---------- Blind test ---------- */
+.bt-card { margin-bottom: 18px; }
+.bt-stage { position: relative; width: 100%; max-width: 480px; aspect-ratio: 16 / 9; margin: 6px auto 10px; border-radius: 18px; overflow: hidden; background: #111; }
+.bt-video, .bt-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.bt-cover { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: radial-gradient(circle at 50% 40%, #3b2a7a, #120a2e); color: #fff; transition: opacity .5s; }
+.bt-stage.revealed .bt-cover { opacity: 0; pointer-events: none; }
+.bt-vinyl { width: 46%; max-width: 170px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
+  background: repeating-radial-gradient(circle, #222 0 2px, #111 2px 5px); box-shadow: 0 8px 24px rgba(0,0,0,.5), inset 0 0 0 3px #333; }
+.bt-vinyl span { width: 36%; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font-size: 1.5rem; background: linear-gradient(135deg, #ff5a3d, #ffd23f); }
+.bt-stage.playing .bt-vinyl { animation: btSpin 1.8s linear infinite; }
+@keyframes btSpin { to { transform: rotate(360deg); } }
+.bt-hint { opacity: .8; font-size: .8rem; text-align: center; padding: 0 12px; }
+.bt-controls { display: flex; align-items: center; gap: 12px; max-width: 480px; margin: 0 auto 6px; }
+.bt-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--sky2); overflow: hidden; }
+.bt-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7a2fd1, #ff5a3d); transition: width .1s linear; }
+.bt-q { font-weight: 800; margin: 10px 0 6px; text-align: center; }
+.bt-title { font-weight: 800; text-align: center; margin: 6px 0; }
+.bt-score { background: var(--sky2); border-radius: 999px; padding: 3px 12px; }
+.bt-final { text-align: center; margin: 10px 0; } .bt-final b { font-size: 3.4rem; color: #7a2fd1; } .bt-final span { font-size: 1.4rem; color: #6b7a8a; margin-left: 6px; }
+.bt-top-h { margin: 18px 0 8px; }
+.bt-f-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bt-f-test .bt-stage { max-width: 100%; }
+.bt-home { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin: 14px 0; text-decoration: none; color: #fff; border: none;
+  background: linear-gradient(120deg, #3b2a7a, #7a2fd1); }
+.bt-home span:nth-child(2) { flex: 1; display: flex; flex-direction: column; gap: 2px; } .bt-home b { font-size: 1.1rem; } .bt-home small { opacity: .85; }
+.bt-home-ic { font-size: 2rem; width: 54px; height: 54px; display: grid; place-items: center; background: rgba(255,255,255,.15); border-radius: 16px; }
+.bt-home-go { background: #fff; color: #7a2fd1; font-weight: 800; border-radius: 999px; padding: 8px 14px; }
+@media (max-width: 640px) { .bt-home-go { display: none; } }

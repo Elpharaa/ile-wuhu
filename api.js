@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119i';
+import { resolveBracket } from './bracket.js?v=20261119j';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -155,6 +155,18 @@ async function supabaseApi() {
 
     // ----- Rubis, points, couleurs -----
     balances: async () => ok(await sb.from('wuhu_balances').select('*')),
+    // ----- Blind test Nintendo (extraits YouTube) -----
+    btToday: async day => ok(await sb.from('wuhu_bt_tracks').select('id, day, youtube_id, start_s, duration_s, choices, reward').eq('day', day).maybeSingle()),
+    btPool: async day => ok(await sb.from('wuhu_bt_tracks').select('id, youtube_id, start_s, duration_s, choices').or(`day.is.null,day.lt.${day}`)),
+    btAnswer: async (id, choice) => ok(await sb.rpc('wuhu_bt_answer', { p_track: id, p_choice: choice })),
+    btResult: async id => ok(await sb.rpc('wuhu_bt_result', { p_track: id })),
+    btCheck: async (run, id, choice) => ok(await sb.rpc('wuhu_bt_check', { p_run: run, p_track: id, p_choice: choice })),
+    btFinish: async run => ok(await sb.rpc('wuhu_bt_finish', { p_run: run })),
+    btBest: async () => ok(await sb.from('wuhu_bt_best').select('*').order('best', { ascending: false }).order('at').limit(10)),
+    btList: async () => ok(await sb.from('wuhu_bt_tracks').select('*, key:wuhu_bt_keys(answer, title, explanation)').order('day', { ascending: true, nullsFirst: false }).order('created_at')),
+    btSave: async t => ok(await sb.rpc('wuhu_bt_save', { p_id: t.id || null, p_day: t.day || null, p_youtube: t.youtube_id, p_start: t.start_s, p_duration: t.duration_s,
+      p_choices: t.choices, p_answer: t.answer, p_title: t.title || '', p_explanation: t.explanation || '', p_reward: t.reward })),
+    btDelete: async id => ok(await sb.rpc('wuhu_bt_delete', { p_id: id })),
     // Accueil des nouveaux (cadeau donné une seule fois) et saisons mensuelles
     welcome: async () => ok(await sb.rpc('wuhu_welcome')),
     seasonBoard: async month => ok(await sb.rpc('wuhu_season_board', month ? { p_month: month } : {})),
@@ -274,6 +286,15 @@ function demoApi() {
     { id: 'dl2', challenger: 'u0', opponent: 'u3', challenger_d: 'D-u0', opponent_d: 'D-u3', game: 'Smash Bros. Ultimate', status: 'accepted', accepted_at: ago(30), created_at: ago(40), names: dn('u0', 'u3') },
     { id: 'dl3', challenger: 'u4', opponent: 'u0', challenger_d: 'D-u4', opponent_d: 'D-u0', game: 'Ping-pong (en vrai)', status: 'claimed', claimed_by_d: 'D-u4', winner_d: 'D-u4', accepted_at: ago(90), created_at: ago(100), names: dn('u4', 'u0') },
     { id: 'dl4', challenger: 'u0', opponent: 'u1', challenger_d: 'D-u0', opponent_d: 'D-u1', game: 'Splatoon 3', status: 'done', winner_d: 'D-u0', reward_w: 10, reward_l: 3, done_at: ago(600), created_at: ago(700), names: dn('u0', 'u1') },
+  ];
+  const parisDayDemo = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
+  const btAns = new Map();
+  const btTracks = [
+    { id: 'bt1', day: parisDayDemo(), youtube_id: 'aaaaaaaaaaa', start_s: 12, duration_s: 20, reward: 15, choices: ['Super Mario Galaxy', 'Super Mario 64', 'Super Mario Sunshine', 'Super Mario Odyssey'],
+      key: { answer: 0, title: 'Gusty Garden Galaxy · Super Mario Galaxy', explanation: 'Composée par Mahito Yokota, c\'est l\'un des thèmes les plus célèbres de la série.' } },
+    ...['Zelda: Ocarina of Time', 'Mario Kart 8', 'Animal Crossing', 'Kirby', 'Pokémon Rouge', 'Wii Sports', 'Splatoon', 'Metroid Prime', 'Smash Bros.', 'Donkey Kong Country', 'Wii Sports Resort']
+      .map((g, i) => ({ id: 'bb' + i, day: null, youtube_id: 'bbbbbbbbbb' + (i % 10), start_s: 5, duration_s: 15, reward: 0,
+        choices: [g, 'Super Mario Sunshine', 'Pikmin', 'F-Zero'], key: { answer: 0, title: 'Thème principal · ' + g, explanation: null } })),
   ];
   let reactions = [['u1', '🔥'], ['u2', '🔥'], ['u3', '😂'], ['u4', '🔥'], ['u5', '😱']].map(([user_id, emoji]) => ({ tournament_id: 't2', match_id: 'W1-0', user_id, emoji }));
   const demoImg = (h, e) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${h},70%,60%)"/><text x="200" y="175" font-size="90" text-anchor="middle">${e}</text></svg>`);
@@ -396,6 +417,22 @@ function demoApi() {
       return { correct: ok2, answer: q.key.answer, explanation: q.key.explanation || null, reward: ok2 ? q.reward : 0, total: 7, good: 4 };
     },
     async quizResult(qid) { const q = quiz.find(x => x.id === qid); return { answer: q.key.answer, explanation: q.key.explanation || null, total: 7, good: 4 }; },
+    async btToday() { const t = btTracks.find(x => x.day === parisDayDemo()); return t ? clone(t) : null; },
+    async btPool() { return clone(btTracks.filter(t => !t.day)); },
+    async btAnswer(id, choice) {
+      const t = btTracks.find(x => x.id === id); if (btAns.has(id)) throw new Error('Tu as déjà répondu aujourd\'hui');
+      const ok = choice === t.key.answer; btAns.set(id, choice);
+      return { correct: ok, answer: t.key.answer, title: t.key.title, explanation: t.key.explanation, reward: ok ? t.reward : 0, good: ok ? 4 : 3, total: 6 };
+    },
+    async btResult(id) { if (!btAns.has(id)) return null; const t = btTracks.find(x => x.id === id), c = btAns.get(id);
+      return { choice: c, correct: c === t.key.answer, answer: t.key.answer, title: t.key.title, explanation: t.key.explanation, reward: t.reward, good: 4, total: 6 }; },
+    async btCheck(run, id, choice) { const t = btTracks.find(x => x.id === id); return { correct: choice === t.key.answer, answer: t.key.answer, title: t.key.title, explanation: t.key.explanation }; },
+    async btFinish() { return { score: 7, total: 10, record: true, previous: 5 }; },
+    async btBest() { return [{ user_id: 'u2', best: 9, total: 10 }, { user_id: 'u0', best: 7, total: 10 }, { user_id: 'u4', best: 6, total: 10 }]; },
+    async btList() { return clone(btTracks); },
+    async btSave(t) { const row = { id: t.id || 'bt' + Date.now(), day: t.day || null, youtube_id: t.youtube_id, start_s: t.start_s, duration_s: t.duration_s, choices: t.choices, reward: t.reward,
+      key: { answer: t.answer, title: t.title, explanation: t.explanation } }; const i = btTracks.findIndex(x => x.id === row.id); i >= 0 ? (btTracks[i] = row) : btTracks.push(row); return row.id; },
+    async btDelete(id) { const i = btTracks.findIndex(x => x.id === id); if (i >= 0) btTracks.splice(i, 1); },
     async welcome() { return /bienvenue-demo/.test(location.hash) ? { new: true, rubis: 50, title: 'Petit nouveau' } : { new: false }; },
     async seasonBoard() { return [{ user_id: 'u2', points: 145 }, { user_id: 'u0', points: 120 }, { user_id: 'u4', points: 95 }, { user_id: 'u1', points: 60 }, { user_id: 'u5', points: 25 }]; },
     async seasons() { return [{ month: '2026-10-01', ranking: [{ user_id: 'u1', points: 210, rank: 1, rubis: 100 }, { user_id: 'u2', points: 180, rank: 2, rubis: 60 }, { user_id: 'u3', points: 90, rank: 3, rubis: 30 }] }]; },

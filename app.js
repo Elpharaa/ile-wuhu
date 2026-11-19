@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119i';
+import { api, DEMO } from './api.js?v=20261119j';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119i';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119j';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -314,6 +314,7 @@ function renderNav() {
            <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
            <a href="#/pantheon" class="${sub('#/pantheon')}">🏛️ Panthéon</a>
            <a href="#/quiz" class="${sub('#/quiz')}">🧠 Quiz du jour</a>
+           <a href="#/blindtest" class="${sub('#/blindtest')}">🎵 Blind test</a>
            <a href="#/defis" class="${sub('#/defis')}">⚔️ Mes défis${state.duelCount ? `<span class="notif in">${state.duelCount}</span>` : ''}</a>
            <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès${state.achCount ? `<span class="notif in">${state.achCount}</span>` : ''}</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
@@ -339,6 +340,7 @@ function renderNav() {
 // =====================================================================
 async function route() {
   if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+  btCurrent?.destroy(); btCurrent = null;
   closeModal();
   renderNav();
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
@@ -359,6 +361,7 @@ async function route() {
     case 'defis': return pageDuels();
     case 'pantheon': return pagePantheon();
     case 'quiz': return pageQuiz();
+    case 'blindtest': return pageBlindtest();
     case 'soiree': return pageParty(parts[1]);
     case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
@@ -451,6 +454,7 @@ async function pageHome() {
       <span class="yt-ic"><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#ff0033"/><path d="M11 5.5v9l8-4.5z" fill="#fff"/></svg></span>
       <span class="yt-txt"><b>🎵 La playlist de l'île</b><small>Notre playlist collaborative YouTube : écoute-la et ajoute tes sons préférés !</small></span>
       <span class="yt-go">Écouter →</span></a>
+    <a class="card bt-home" href="#/blindtest"><span class="bt-home-ic">🎧</span><span><b>Blind test Nintendo</b><small>Devine de quel jeu vient la musique du jour !</small></span><span class="bt-home-go">Jouer →</span></a>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, oppOf(x, people))).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -2634,6 +2638,246 @@ function burst(el) {
     s.style.cssText = `left:${r.left + r.width / 2}px;top:${r.top + r.height / 2}px;--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px`;
     document.body.appendChild(s); setTimeout(() => s.remove(), 900);
   }
+}
+
+// =====================================================================
+//  Blind test Nintendo : extraits lus depuis YouTube (rien n'est hébergé sur le site)
+// =====================================================================
+let ytApi = null;
+function ytReady() {
+  if (window.YT?.Player) return Promise.resolve();
+  ytApi ??= new Promise(res => {
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { prev?.(); res(); };
+    const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s);
+  });
+  return ytApi;
+}
+// Accepte un lien YouTube (watch, youtu.be, shorts, music) ou directement l'identifiant de 11 caractères
+function ytId(v) {
+  v = String(v || '').trim();
+  if (/^[\w-]{11}$/.test(v)) return v;
+  const m = v.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const parseTime = v => { v = String(v || '0').trim(); if (v.includes(':')) { const [m, s] = v.split(':').map(Number); return (m || 0) * 60 + (s || 0); } return Number(v) || 0; };
+
+// Le « lecteur » : la vidéo est cachée derrière un vinyle jusqu'à la réponse
+function btStage(box, track, { onState } = {}) {
+  box.innerHTML = `<div class="bt-stage">
+      <div class="bt-video"><div id="bt-yt-${track.id}"></div></div>
+      <div class="bt-cover"><div class="bt-vinyl"><span>🎵</span></div><small class="bt-hint">Appuie sur ▶️ pour écouter l'extrait</small></div>
+    </div>
+    <div class="bt-controls"><button class="btn primary bt-play">▶️ Écouter l'extrait (${track.duration_s} s)</button>
+      <div class="bt-bar"><i></i></div></div>`;
+  const stage = $('.bt-stage', box), bar = $('.bt-bar i', box), btn = $('.bt-play', box);
+  let player = null, ready = false, timer = 0, t0 = 0, broken = false;
+  const stop = () => { clearInterval(timer); timer = 0; stage.classList.remove('playing'); try { player?.pauseVideo(); } catch {} btn.disabled = broken; btn.textContent = '🔁 Réécouter'; };
+  const play = () => {
+    if (!ready || broken) return;
+    try { player.seekTo(track.start_s, true); player.unMute(); player.setVolume(90); player.playVideo(); } catch {}
+    stage.classList.add('playing'); btn.disabled = true; btn.textContent = '🎧 Écoute…';
+    t0 = performance.now(); clearInterval(timer);
+    timer = setInterval(() => {
+      const k = Math.min(1, (performance.now() - t0) / (track.duration_s * 1000));
+      bar.style.width = (k * 100) + '%';
+      if (k >= 1) stop();
+    }, 100);
+    onState?.('play');
+  };
+  btn.disabled = true; btn.textContent = '⏳ Chargement…';
+  ytReady().then(() => {
+    player = new YT.Player(`bt-yt-${track.id}`, {
+      host: 'https://www.youtube-nocookie.com', videoId: track.youtube_id, width: '100%', height: '100%',
+      playerVars: { start: track.start_s, controls: 0, disablekb: 1, modestbranding: 1, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3 },
+      events: {
+        onReady: () => { ready = true; btn.disabled = false; btn.textContent = `▶️ Écouter l'extrait (${track.duration_s} s)`; },
+        onError: e => {
+          broken = true; btn.disabled = true; btn.textContent = '⚠️ Extrait indisponible';
+          $('.bt-hint', box).textContent = [101, 150].includes(e.data) ? 'Cette vidéo ne peut pas être lue en dehors de YouTube.' : 'La vidéo est introuvable ou privée.';
+          onState?.('error', e.data);
+        },
+      },
+    });
+  });
+  btn.addEventListener('click', play);
+  return {
+    reveal() { stop(); stage.classList.add('revealed'); },
+    destroy() { clearInterval(timer); try { player?.destroy(); } catch {} },
+    play,
+  };
+}
+const BT_LETTERS = ['A', 'B', 'C', 'D'];
+function btChoices(track, { picked = null, answer = null } = {}) {
+  return `<div class="quiz-ch bt-choices ${answer != null ? 'answered' : ''}">${track.choices.map((c, i) => {
+    const cls = answer == null ? '' : i === answer ? 'good' : i === picked ? 'bad' : '';
+    return `<button class="qc ${cls}" data-bt="${i}" ${answer != null ? 'disabled' : ''}><b>${BT_LETTERS[i]}</b>${esc(c)}</button>`;
+  }).join('')}</div>`;
+}
+let btCurrent = null;
+async function pageBlindtest() {
+  btCurrent?.destroy(); btCurrent = null;
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const day = parisDay();
+  const [today, best, members] = await Promise.all([safe(() => api.btToday(day)), safe(() => api.btBest()), safe(() => api.listMembers())]);
+  const people = new Map((members || []).map(m => [m.id, m]));
+  app.innerHTML = `
+    <div class="page-head"><h1>🎵 Blind test Nintendo</h1></div>
+    <p class="small">Écoute l'extrait, trouve de quel jeu vient la musique ! Les extraits sont lus depuis YouTube : monte le son 🔊</p>
+    <section class="card bt-card" id="bt-day"></section>
+    <section class="card bt-card" id="bt-series">
+      <div class="quiz-head"><h2>🔥 Mode série</h2></div>
+      <p>Enchaîne <b>10 musiques</b> au hasard et bats ton record ! <span class="muted">(pour le plaisir : pas de rubis en jeu)</span></p>
+      <button class="btn primary" id="bt-start">🎮 Lancer une série</button>
+      <h3 class="bt-top-h">🏆 Meilleurs scores</h3>
+      <div class="lb-table">${(best || []).filter(r => people.has(r.user_id)).map((r, i) => `
+        <a href="#/profil/${esc(r.user_id)}" class="lb-row ${r.user_id === state.me.id ? 'me-row' : ''}">
+          <span class="lb-rank">${[I.medal1, I.medal2, I.medal3][i] || i + 1}</span>${avatar(people.get(r.user_id), 'av sm')}
+          <span class="lb-name">${uname(people.get(r.user_id))}</span><b>${r.best} / ${r.total}</b></a>`).join('') || '<p class="empty">Personne n\'a encore fait de série. Sois le premier !</p>'}</div>
+    </section>
+    ${state.me.is_admin ? '<section id="bt-admin"></section>' : ''}`;
+  await drawBtDay(today);
+  $('#bt-start').addEventListener('click', () => btSeries());
+  if (state.me.is_admin) drawBtAdmin();
+}
+async function drawBtDay(t) {
+  const box = $('#bt-day'); if (!box) return;
+  if (!t) { box.innerHTML = '<div class="quiz-head"><h2>🎧 Blind test du jour</h2></div><p class="empty">Pas de blind test aujourd\'hui. Reviens demain !</p>'; return; }
+  const res = await safe(() => api.btResult(t.id));
+  box.innerHTML = `<div class="quiz-head"><h2>🎧 Blind test du jour</h2><span class="small">${res ? '' : `Bonne réponse : ${rubis(t.reward)} ${pts(t.reward)}`}</span></div>
+    <div id="bt-day-stage"></div><p class="bt-q">De quel jeu vient cette musique ?</p><div id="bt-day-ch"></div><div id="bt-day-res"></div>`;
+  btCurrent?.destroy();
+  btCurrent = btStage($('#bt-day-stage', box), t);
+  const showRes = r => {
+    $('#bt-day-ch', box).innerHTML = btChoices(t, { picked: r.choice, answer: r.answer });
+    $('#bt-day-res', box).innerHTML = `<p class="quiz-res ${r.correct ? 'ok' : 'ko'}">${r.correct ? `🎉 Bien joué ! +${r.reward} ${I.rubis} +${r.reward} ${I.points}` : '😅 Raté ! Retente ta chance demain.'}
+      ${r.total ? `<small>${r.good} sur ${r.total} ont trouvé</small>` : ''}</p>
+      ${r.title ? `<p class="bt-title">🎶 ${esc(r.title)}</p>` : ''}${r.explanation ? `<p class="quiz-why">💡 ${esc(r.explanation)}</p>` : ''}`;
+    btCurrent.reveal();
+  };
+  if (res) return showRes(res);
+  $('#bt-day-ch', box).innerHTML = btChoices(t);
+  box.querySelectorAll('[data-bt]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    box.querySelectorAll('[data-bt]').forEach(x => (x.disabled = true));
+    const r = await api.btAnswer(t.id, Number(b.dataset.bt));
+    if (r.correct) { burst(b); toast(`Bonne réponse ! +${r.reward} rubis`); await loadBalances(); renderNav(); } else toast('Raté !', 'err');
+    showRes({ ...r, choice: Number(b.dataset.bt) });
+  })));
+}
+async function btSeries() {
+  const pool = (await safe(() => api.btPool(parisDay()))) || [];
+  if (pool.length < 5) return toast('Pas encore assez de musiques pour une série (il en faut 5)', 'err');
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const list = pool.slice(0, 10), run = crypto.randomUUID();
+  let k = 0, score = 0;
+  const box = $('#bt-series');
+  const round = () => {
+    const t = list[k];
+    box.innerHTML = `<div class="quiz-head"><h2>🔥 Série · ${k + 1} / ${list.length}</h2><b class="bt-score">${score} ✓</b></div>
+      <div id="bt-s-stage"></div><p class="bt-q">De quel jeu vient cette musique ?</p><div id="bt-s-ch">${btChoices(t)}</div><div id="bt-s-res"></div>`;
+    btCurrent?.destroy();
+    btCurrent = btStage($('#bt-s-stage', box), t, { onState: s => { if (s === 'error') $('#bt-s-res', box).innerHTML = '<button class="btn ghost" id="bt-skip">Passer cette musique →</button>'; $('#bt-skip')?.addEventListener('click', next); } });
+    box.querySelectorAll('[data-bt]').forEach(b => b.addEventListener('click', () => safe(async () => {
+      box.querySelectorAll('[data-bt]').forEach(x => (x.disabled = true));
+      const r = await api.btCheck(run, t.id, Number(b.dataset.bt));
+      if (r.correct) { score++; burst(b); }
+      $('#bt-s-ch', box).innerHTML = btChoices(t, { picked: Number(b.dataset.bt), answer: r.answer });
+      $('.bt-score', box).textContent = `${score} ✓`;
+      $('#bt-s-res', box).innerHTML = `<p class="quiz-res ${r.correct ? 'ok' : 'ko'}">${r.correct ? '🎉 Bonne réponse !' : '😅 Raté !'}</p>
+        ${r.title ? `<p class="bt-title">🎶 ${esc(r.title)}</p>` : ''}
+        <button class="btn primary" id="bt-next">${k + 1 < list.length ? 'Musique suivante →' : 'Voir mon score 🏁'}</button>`;
+      btCurrent.reveal();
+      $('#bt-next', box).addEventListener('click', next);
+    })));
+  };
+  const next = () => safe(async () => {
+    k++;
+    if (k < list.length) return round();
+    btCurrent?.destroy(); btCurrent = null;
+    const f = await api.btFinish(run);
+    if (f?.record) confetti(70);
+    box.innerHTML = `<div class="quiz-head"><h2>🏁 Série terminée !</h2></div>
+      <div class="bt-final"><b>${f?.score ?? score}</b><span>/ ${f?.total ?? list.length}</span></div>
+      <p>${f?.record ? `🏆 <b>Nouveau record !</b>${f.previous != null ? ` (avant : ${f.previous})` : ''}` : 'Pas de record cette fois… retente ta chance !'}</p>
+      <button class="btn primary" id="bt-again">🔁 Rejouer</button> <button class="btn ghost" id="bt-back">Retour</button>`;
+    $('#bt-again', box).addEventListener('click', () => btSeries());
+    $('#bt-back', box).addEventListener('click', () => pageBlindtest());
+  });
+  round();
+}
+async function drawBtAdmin() {
+  const box = $('#bt-admin'); if (!box) return;
+  const list = (await safe(() => api.btList())) || [];
+  const today = parisDay();
+  const keyOf = t => (Array.isArray(t.key) ? t.key[0] : t.key) || {};
+  const next = (() => { const used = new Set(list.map(t => t.day)); let d = new Date(); for (;;) { const s = parisDay(d); if (!used.has(s)) return s; d = new Date(+d + 864e5); } })();
+  const upcoming = list.filter(t => t.day && t.day >= today), bank = list.filter(t => !t.day), past = list.filter(t => t.day && t.day < today);
+  const row = t => `<div class="qa-row ${t.day === today ? 'today' : ''}">
+      <span class="qa-day">${!t.day ? '🎮 Banque' : t.day === today ? 'Aujourd\'hui' : new Date(t.day + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+      <span class="qa-q">🎵 ${esc(keyOf(t).title || t.choices[keyOf(t).answer] || '?')}<small>✓ ${esc(t.choices[keyOf(t).answer] ?? '?')} · ${mmss(t.start_s)} (${t.duration_s} s)</small></span>
+      <button class="btn ghost sm" data-btedit="${esc(t.id)}">Modifier</button><button class="btn danger sm" data-btdel="${esc(t.id)}">✕</button></div>`;
+  box.innerHTML = `
+    <div class="page-head"><h2>Gérer le blind test <span class="admin-label">Admin</span></h2><button class="btn primary sm" id="bt-add">+ Nouvelle musique</button></div>
+    <p class="small">Colle le lien YouTube d'une musique Nintendo, choisis le début de l'extrait et les réponses. Teste toujours l'extrait : certaines vidéos refusent d'être lues ailleurs que sur YouTube.</p>
+    <h3 class="qa-bank-h">📅 Blind tests du jour</h3>
+    <div class="qa-list">${upcoming.map(row).join('') || '<p class="empty">Aucun blind test prévu.</p>'}</div>
+    <h3 class="qa-bank-h">🎮 Banque du mode série <small class="muted">(${bank.length + past.length} musique${bank.length + past.length > 1 ? 's' : ''})</small></h3>
+    <div class="qa-list">${bank.map(row).join('') || '<p class="empty">La banque est vide : il faut au moins 5 musiques pour le mode série.</p>'}</div>
+    ${past.length ? `<details class="qa-past"><summary>Blind tests passés (${past.length})</summary><div class="qa-list">${past.map(row).join('')}</div></details>` : ''}`;
+  const form = t => {
+    const k = t ? keyOf(t) : {}, ch = t?.choices || ['', '', '', ''];
+    const f = openModal(`
+      <h2>${t ? 'Modifier la musique' : 'Nouvelle musique'}</h2>
+      <div class="form qf">
+        <div class="qf-type">
+          <label class="qf-opt"><input type="radio" name="bt-type" value="day" ${t && !t.day ? '' : 'checked'}> 📅 Blind test du jour</label>
+          <label class="qf-opt"><input type="radio" name="bt-type" value="bank" ${t && !t.day ? 'checked' : ''}> 🎮 Banque du mode série</label>
+        </div>
+        <label id="bt-day-l">Jour<input type="date" id="bt-f-day" value="${esc(t?.day || next)}" min="${today}"></label>
+        <label>Lien YouTube<input id="bt-f-yt" placeholder="https://www.youtube.com/watch?v=…" value="${t ? 'https://youtu.be/' + esc(t.youtube_id) : ''}"></label>
+        <div class="bt-f-row"><label>Début de l'extrait<input id="bt-f-start" placeholder="1:05" value="${t ? mmss(t.start_s) : '0:00'}"></label>
+          <label>Durée (s)<input type="number" id="bt-f-dur" min="5" max="60" value="${t?.duration_s ?? 20}"></label></div>
+        <div id="bt-f-test" class="bt-f-test"></div><button type="button" class="btn ghost sm" id="bt-f-try">🎧 Tester l'extrait</button>
+        <label>Titre affiché après la réponse<input id="bt-f-title" maxlength="120" placeholder="Ex : Gusty Garden Galaxy · Super Mario Galaxy" value="${esc(k.title || '')}"></label>
+        <p class="small">Réponses (2 à 4) : coche la bonne.</p>
+        ${[0, 1, 2, 3].map(i => `<div class="qf-ch"><input type="radio" name="bt-ok" value="${i}" ${i === (k.answer ?? 0) ? 'checked' : ''}><input type="text" id="bt-f-c${i}" maxlength="80" placeholder="Jeu ${'ABCD'[i]}${i > 1 ? ' (facultatif)' : ''}" value="${esc(ch[i] || '')}"></div>`).join('')}
+        <label>Anecdote <small class="muted">(facultatif)</small><textarea id="bt-f-x" rows="2" maxlength="400">${esc(k.explanation || '')}</textarea></label>
+        <label id="bt-r-l">Rubis et points pour une bonne réponse<input type="number" id="bt-f-r" min="0" max="200" value="${t?.reward ?? 15}"></label>
+      </div>
+      <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="bt-f-save">Enregistrer</button></div>`);
+    const bankMode = () => f.querySelector('[name=bt-type]:checked')?.value === 'bank';
+    const sync = () => { $('#bt-day-l', f).hidden = bankMode(); $('#bt-r-l', f).hidden = bankMode(); };
+    f.querySelectorAll('[name=bt-type]').forEach(r => r.addEventListener('change', sync)); sync();
+    let tester = null;
+    $('#bt-f-try', f).addEventListener('click', () => {
+      const id = ytId($('#bt-f-yt', f).value);
+      if (!id) return toast('Lien YouTube invalide', 'err');
+      tester?.destroy();
+      tester = btStage($('#bt-f-test', f), { id: 'test' + Date.now(), youtube_id: id, start_s: parseTime($('#bt-f-start', f).value), duration_s: Math.min(60, Math.max(5, Number($('#bt-f-dur', f).value) || 20)) });
+      $('#bt-f-test .bt-stage', f).classList.add('revealed');
+    });
+    $('#bt-f-save', f).addEventListener('click', () => safe(async () => {
+      const id = ytId($('#bt-f-yt', f).value);
+      if (!id) return toast('Colle un lien YouTube valide', 'err');
+      const raw = [0, 1, 2, 3].map(i => $('#bt-f-c' + i, f).value.trim());
+      const okIdx = Number(f.querySelector('[name=bt-ok]:checked')?.value ?? 0);
+      if (!raw[okIdx]) return toast('La bonne réponse cochée est vide', 'err');
+      const keep = raw.map((c, i) => [c, i]).filter(([c]) => c);
+      if (keep.length < 2) return toast('Il faut au moins 2 réponses', 'err');
+      if (!bankMode() && !$('#bt-f-day', f).value) return toast('Choisis le jour', 'err');
+      await api.btSave({ id: t?.id, day: bankMode() ? null : $('#bt-f-day', f).value, youtube_id: id, start_s: parseTime($('#bt-f-start', f).value),
+        duration_s: Math.min(60, Math.max(5, Number($('#bt-f-dur', f).value) || 20)), choices: keep.map(([c]) => c), answer: keep.findIndex(([, i]) => i === okIdx),
+        title: $('#bt-f-title', f).value.trim(), explanation: $('#bt-f-x', f).value.trim(), reward: bankMode() ? 0 : Number($('#bt-f-r', f).value) || 0 });
+      tester?.destroy(); closeModal(); toast('Musique enregistrée 🎵'); drawBtAdmin();
+    }));
+  };
+  $('#bt-add', box).addEventListener('click', () => form(null));
+  box.querySelectorAll('[data-btedit]').forEach(b => b.addEventListener('click', () => form(list.find(x => x.id === b.dataset.btedit))));
+  box.querySelectorAll('[data-btdel]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    if (!confirm('Supprimer cette musique ?')) return;
+    await api.btDelete(b.dataset.btdel); toast('Supprimée'); drawBtAdmin();
+  })));
 }
 
 // ---------- Bienvenue sur l'île (première visite) ----------
