@@ -14,9 +14,12 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const $ = (sel, root = document) => root.querySelector(sel);
 const DEFAULT_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';
 const defAvatar = () => state.icons.avatar || DEFAULT_AVATAR;
-const avatarImg = (p, cls = 'av') => `<img class="${cls}" src="${esc(p?.avatar_url || defAvatar())}" alt="" loading="lazy">`;
+const avatarImg = (p, cls = 'av') => p?.is_team
+  ? `<span class="duo ${esc(cls.replace(/\bav\b/, ''))}">${p.members.map(m => `<img class="${cls}" src="${esc(m?.avatar_url || defAvatar())}" alt="" loading="lazy">`).join('')}</span>`
+  : `<img class="${cls}" src="${esc(p?.avatar_url || defAvatar())}" alt="" loading="lazy">`;
 // Avatar, avec le cadre acheté en boutique s'il y en a un
 const avatar = (p, cls = 'av') => {
+  if (p?.is_team) return avatarImg(p, cls);
   const fr = p?.item_frame && state.items.get(p.item_frame);
   return fr ? frameWrap(fr.effect, cls, avatarImg(p, cls)) : avatarImg(p, cls);
 };
@@ -77,6 +80,7 @@ function fxName(name, effect) {
   return `<span class="uname fx fx-${esc(effect)}" data-t="${esc(name)}">${inner}</span>`;
 }
 function uname(p) {
+  if (p?.is_team) return `<span class="uname team-name">${esc(p.username)}</span>`;
   const fx = p?.name_color && state.colors.get(p.name_color);
   if (fx?.effect) return fxName(p.username, fx.effect);
   const c = topRole(p)?.color;
@@ -131,7 +135,8 @@ function computeRewards(t, bracket) {
   bracket.matches.forEach(m => m.slots.forEach(x => x.p && players.add(x.p)));
   const rows = [];
   const add = (uid, g, reason) => {
-    if (uid && (g.points || g.rubis)) rows.push({ user_id: uid, points: g.points || 0, rubis: g.rubis || 0, reason: `${reason} – ${t.name}`, tournament_id: t.id });
+    const who = bracket.teams?.[uid]?.members || [uid];
+    who.forEach(u => { if (u && (g.points || g.rubis)) rows.push({ user_id: u, points: g.points || 0, rubis: g.rubis || 0, reason: `${reason} – ${t.name}`, tournament_id: t.id }); });
   };
   players.forEach(u => add(u, R.participation, 'Participation'));
   const wins = new Map();
@@ -431,7 +436,7 @@ async function pageHome() {
     <div id="daily-slot"></div>
     <div id="quiz-slot"></div>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
-      <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
+      <div class="grid">${todo.map(x => vsCard(x, me, oppOf(x, people))).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
     <section>
       <h2>En cours</h2>
@@ -463,18 +468,36 @@ function allMatches(tours) {
   // du plus récent au plus ancien
   return out.sort((a, b) => (b.t.created_at || '').localeCompare(a.t.created_at || '') || b.order - a.order);
 }
+// En 2 contre 2, les « joueurs » de l'arbre sont des équipes : bracket.teams[id] = { name, members }
+const teamOf = (t, id) => t?.bracket?.teams?.[id] || null;
+const sideOf = (t, s, uid) => s.players.findIndex(x => x && (x === uid || teamOf(t, x)?.members?.includes(uid)));
+// Profil « équipe » pour l'affichage (nom + les 2 avatars)
+function teamPerson(id, team, getP) {
+  return { id, username: team.name, is_team: true, members: (team.members || []).map(m => getP(m) || { id: m, username: '?' }) };
+}
+function withTeams(bracket, people) {
+  const all = new Map(people);
+  Object.entries(bracket?.teams || {}).forEach(([id, tm]) => all.set(id, teamPerson(id, tm, m => people.get(m))));
+  return all;
+}
+// Tous ceux qui ont gagné le tournoi (le champion, ou les 2 joueurs de l'équipe championne)
+const winnerFields = (bracket, champ) => bracket?.teams ? { winner_id: null, winner_team: champ ?? null } : { winner_id: champ ?? null, winner_team: null };
+const winnersOf = t => t.winner_id ? [t.winner_id] : t.winner_team ? (teamOf(t, t.winner_team)?.members || []) : [];
 function matchesOf(tours, uid) {
-  return allMatches(tours).filter(x => x.s.players.includes(uid)).map(x => {
-    const i = x.s.players.indexOf(uid);
+  return allMatches(tours).filter(x => sideOf(x.t, x.s, uid) >= 0).map(x => {
+    const i = sideOf(x.t, x.s, uid);
     const sc = x.s.result?.s;
-    return { ...x, opp: x.s.players[1 - i], done: x.s.done, won: x.s.done && x.s.winner === uid,
+    const opp = x.s.players[1 - i], oppTeam = teamOf(x.t, opp);
+    return { ...x, opp, oppTeam: oppTeam ? { id: opp, ...oppTeam } : null, team: !!oppTeam,
+      done: x.s.done, won: x.s.done && x.s.winner === x.s.players[i],
       mine: sc ? sc[i] : null, theirs: sc ? sc[1 - i] : null };
   });
 }
+const oppOf = (x, people) => x.oppTeam ? teamPerson(x.oppTeam.id, x.oppTeam, m => people.get(m)) : people.get(x.opp) || { username: '?' };
 function headToHead(list) {
   const map = new Map();
   for (const x of list) {
-    if (!x.done) continue;
+    if (!x.done || x.team) continue;
     const r = map.get(x.opp) || { w: 0, l: 0 };
     x.won ? r.w++ : r.l++;
     map.set(x.opp, r);
@@ -634,7 +657,7 @@ async function pageCompetition(id, tab = 'apercu') {
       <section>
         <h2>Les tournois</h2>
         <div class="grid">${tours.map(t => {
-          const champ = t.winner_id ? people.get(t.winner_id) : null;
+          const champ = t.winner_id ? people.get(t.winner_id) : t.winner_team && teamOf(t, t.winner_team) ? teamPerson(t.winner_team, teamOf(t, t.winner_team), m => people.get(m)) : null;
           return tournamentCard(t).replace('</a>', champ ? `<p class="meta">${I.trophee} ${uname(champ)}</p></a>` : '</a>');
         }).join('') || '<p class="empty">Aucun tournoi pour l\'instant.</p>'}</div>
       </section>
@@ -656,16 +679,32 @@ async function pageCompetition(id, tab = 'apercu') {
     const t = tours.find(x => x.id === tid);
     body.innerHTML = '<div class="loading">Chargement…</div>';
     const parts = await safe(() => api.listParticipants(tid)) || [];
-    const ppl = new Map(parts.map(p => [p.user_id, p.profile]));
+    const ppl = withTeams(t.bracket, new Map(parts.map(p => [p.user_id, p.profile])));
     const res = t.bracket ? resolveBracket(t.bracket) : null;
     body.innerHTML = `
       <section>
         <div class="page-head"><h2>${esc(t.name)}</h2><a class="btn ghost sm" href="#/tournoi/${esc(t.id)}">Ouvrir le tournoi →</a></div>
         ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
         ${res?.champion ? `<div class="card champion small-champ">${I.trophee} ${avatar(ppl.get(res.champion), 'av')} <strong>${uname(ppl.get(res.champion))}</strong></div>` : ''}
-        ${t.bracket ? renderBracket(t.bracket, res, ppl)
+        ${t.bracket ? `<div id="real-bracket">${renderBracket(t.bracket, res, ppl)}</div>`
           : `<p class="empty">${ppl.size} inscrit${ppl.size > 1 ? 's' : ''}. L'arbre apparaîtra quand le tournoi sera lancé.</p>`}
       </section>`;
+    // Clic sur un match : sa fiche (score, joueurs, profils), comme sur la page du tournoi
+    if (t.bracket) {
+      const canReport = st => st.playable && (me.is_admin || (t.status === 'running' && !st.done && sideOf(t, st, me.id) >= 0));
+      const reload = async () => {
+        const nt = await safe(() => api.getTournament(tid)); if (nt) Object.assign(t, nt);
+        showTournament(tid);
+      };
+      body.querySelectorAll('#real-bracket .match:not(.ghost)').forEach(el => {
+        const st = res.state[el.dataset.mid];
+        if (!st || !st.players.some(Boolean)) return;
+        el.classList.add('clickable');
+        if (canReport(st)) { el.classList.add('editable'); if (!me.is_admin) el.classList.add('mine'); }
+        el.addEventListener('click', e => { e.preventDefault(); matchSheet(t, st, ppl, reload, canReport(st) ? (me.is_admin ? 'admin' : 'player') : null); });
+      });
+      markReactions(t.id);
+    }
   };
   const show = k => {
     app.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
@@ -720,6 +759,12 @@ async function tournamentForm(t = null, presetComp = null) {
         </label>
         <label>Places max<input name="max_players" type="number" min="2" max="128" value="${esc(t?.max_players)}" placeholder="Illimité"></label>
       </div>
+      <label>Mode
+        <select name="team_size" ${t?.status === 'running' || t?.status === 'done' ? 'disabled' : ''}>
+          <option value="1" ${t?.team_size !== 2 ? 'selected' : ''}>👤 Chacun pour soi (1 contre 1)</option>
+          <option value="2" ${t?.team_size === 2 ? 'selected' : ''}>👥 En équipe (2 contre 2)</option>
+        </select>
+      </label>
       <label>Date et heure (optionnel)<input name="starts_at" type="datetime-local" value="${toLocal(t?.starts_at)}"></label>
       <label>Compétition
         <select name="competition_id">
@@ -752,6 +797,7 @@ async function tournamentForm(t = null, presetComp = null) {
       starts_at: f.get('starts_at') ? new Date(f.get('starts_at')).toISOString() : null,
     };
     if (f.get('format')) data.format = f.get('format');
+    if (f.get('team_size')) data.team_size = Number(f.get('team_size'));
     data.competition_id = f.get('competition_id') || null;
     data.rewards = {};
     for (const k of Object.keys(DEFAULT_REWARDS)) {
@@ -945,20 +991,26 @@ async function pageTournament(id) {
   const joined = people.has(me.id);
   const full = t.max_players && people.size >= t.max_players;
   const res = t.bracket ? resolveBracket(t.bracket) : null;
-  const champ = res?.champion ? people.get(res.champion) : null;
+  // 2 contre 2 : les équipes formées par l'admin (avant lancement), puis celles figées dans l'arbre
+  const duo = t.team_size === 2;
+  const teams = duo ? ((await safe(() => api.listTeams(id))) || []).filter(x => x.members.every(m => people.has(m))) : [];
+  const teamsObj = Object.fromEntries(teams.map(x => [x.id, { name: x.name, members: x.members }]));
+  const ppl = withTeams(t.bracket || (duo ? { teams: teamsObj } : null), people);
+  const inTeam = new Set(teams.flatMap(x => x.members));
+  const champ = res?.champion ? ppl.get(res.champion) : null;
   const comp = t.competition_id ? await safe(() => api.getCompetition(t.competition_id)) : null;
   // Matchs que je peux renseigner : tous pour un admin, seulement le mien (pas encore joué) pour un joueur
-  const ids = [...people.keys()];
+  const ids = duo ? teams.map(x => x.id) : [...people.keys()];
   const placement = t.status === 'open' && ids.length >= 2 ? syncPlacement(t.seeding, ids) : null;
   const preview = placement ? bracketFromPlacement(placement, t.format) : null;
-  const canReport = s => s.playable && (me.is_admin || (t.status === 'running' && !s.done && s.players.includes(me.id)));
+  const canReport = s => s.playable && (me.is_admin || (t.status === 'running' && !s.done && sideOf(t, s, me.id) >= 0));
   const myMatch = res ? Object.values(res.state).find(s => !me.is_admin && canReport(s)) : null;
 
   app.innerHTML = `
     ${comp ? `<a href="#/competition/${esc(comp.id)}" class="back">← ${esc(comp.name)}</a>` : '<a href="#/tournois" class="back">← Tous les tournois</a>'}
     <div class="card thead ${t.image_url ? 'with-img' : ''}">
       ${t.image_url ? `<div class="thead-img" style="background-image:url('${esc(t.image_url)}')"></div>` : ''}
-      <div class="tcard-top">${tBadge(t)}<span class="fmt">${FORMAT[t.format]}</span></div>
+      <div class="tcard-top">${tBadge(t)}<span class="fmt">${FORMAT[t.format]}${duo ? ' · 👥 2 contre 2' : ''}</span></div>
       <h1>${esc(t.name)}</h1>
       ${t.game ? `<p class="game">${esc(t.game)}</p>` : ''}
       ${t.starts_at ? `<p class="meta">${I.date} ${esc(fmtDate(t.starts_at))}</p>` : ''}
@@ -988,7 +1040,7 @@ async function pageTournament(id) {
         ${me.is_admin && t.status !== 'done' ? '<p class="hint">Clique sur un match pour entrer le score. Les joueurs peuvent aussi déclarer le score de leur propre match.</p>' : ''}
         ${myMatch ? '<p class="hint mine-hint">C\'est ton tour ! Clique sur ton match (celui qui clignote) pour déclarer le score une fois joué.</p>' : ''}
         ${me.is_admin && t.status === 'running' ? `<div class="edit-bar"><button class="btn ghost sm" id="edit-tree">✏️ Modifier l'arbre</button></div>` : ''}
-        <div id="real-bracket">${renderBracket(t.bracket, res, people)}</div>
+        <div id="real-bracket">${renderBracket(t.bracket, res, ppl)}</div>
       </section>` : ''}
 
     ${preview ? `
@@ -1001,7 +1053,24 @@ async function pageTournament(id) {
           <button class="btn ghost sm" id="shuffle">🔀 Mélanger au hasard</button>
           <button class="btn ghost sm" id="reset-order">Ordre d'inscription</button>
         </div>` : ''}
-        <div id="preview-bracket" class="${me.is_admin ? 'swappable' : ''}">${renderBracket(preview, resolveBracket(preview), people)}</div>
+        <div id="preview-bracket" class="${me.is_admin ? 'swappable' : ''}">${renderBracket(preview, resolveBracket(preview), ppl)}</div>
+      </section>` : ''}
+
+    ${duo ? `
+      <section>
+        <div class="page-head"><h2>👥 Équipes (${(t.bracket ? Object.keys(t.bracket.teams || {}) : teams).length})</h2>
+          ${me.is_admin && t.status === 'open' && people.size - inTeam.size >= 2 ? '<button class="btn primary sm" id="add-team">+ Former une équipe</button>' : ''}</div>
+        ${t.status === 'open' ? `<p class="hint">${me.is_admin ? 'Forme les équipes à partir des inscrits. Seules les équipes complètes entrent dans l\'arbre.' : 'Les équipes sont formées par les admins. Une fois dans une équipe, tu peux lui choisir un nom.'}</p>` : ''}
+        <div class="teams">${Object.entries(t.bracket ? t.bracket.teams || {} : teamsObj).map(([tid, tm]) => {
+          const mine = tm.members.includes(me.id);
+          return `<div class="team-card ${mine ? 'mine' : ''}">
+            <div class="tc-head">${avatar(ppl.get(tid), 'av md')}<strong>${esc(tm.name)}</strong>
+              ${mine || me.is_admin ? `<button class="btn ghost sm" data-rename="${esc(tid)}" title="Renommer">✏️</button>` : ''}
+              ${me.is_admin && t.status === 'open' ? `<button class="x" data-delteam="${esc(tid)}" title="Défaire l'équipe">✕</button>` : ''}</div>
+            <div class="tc-members">${tm.members.map(m => `<a href="#/profil/${esc(m)}">${uname(people.get(m) || { username: '?' })}</a>`).join('<span>&</span>')}</div>
+          </div>`;
+        }).join('') || '<p class="empty">Aucune équipe pour l\'instant.</p>'}</div>
+        ${t.status === 'open' && people.size > inTeam.size ? `<p class="small">Sans équipe : ${[...people.keys()].filter(u => !inTeam.has(u)).map(u => uname(people.get(u))).join(', ')}</p>` : ''}
       </section>` : ''}
 
     <section>
@@ -1040,10 +1109,22 @@ async function pageTournament(id) {
   }));
   $('#reopen')?.addEventListener('click', () => safe(async () => {
     if (!confirm('L\'arbre et tous les scores seront effacés. Continuer ?')) return;
-    await api.updateTournament(id, { status: 'open', bracket: null, winner_id: null });
+    await api.updateTournament(id, { status: 'open', bracket: null, winner_id: null, winner_team: null });
     await syncRewards(t, null); renderNav(); reload();
   }));
-  $('#launch')?.addEventListener('click', () => launchDialog(t, placement, reload));
+  $('#launch')?.addEventListener('click', () => launchDialog(t, placement, reload, duo ? teamsObj : null));
+  // ----- Équipes (2 contre 2) -----
+  $('#add-team')?.addEventListener('click', () => teamDialog(t, people, inTeam, teams.length, reload));
+  app.querySelectorAll('[data-delteam]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    if (!confirm('Défaire cette équipe ? Les deux joueurs restent inscrits.')) return;
+    await api.deleteTeam(b.dataset.delteam); reload();
+  })));
+  app.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    const cur = (t.bracket?.teams || teamsObj)[b.dataset.rename]?.name || '';
+    const name = (prompt('Nom de l\'équipe (40 caractères max) :', cur) || '').trim();
+    if (!name || name === cur) return;
+    await api.renameTeam(b.dataset.rename, name.slice(0, 40)); toast('Équipe renommée'); reload();
+  })));
 
   // ----- Aperçu (avant lancement) : échanger, mélanger -----
   const savePlacement = pl => safe(async () => { await api.updateTournament(t.id, { seeding: pl }); reload(); });
@@ -1071,7 +1152,7 @@ async function pageTournament(id) {
         slotOf(a).p = pb; slotOf(b).p = pa;
         touched.forEach(mid => delete bracket.results?.[mid]);
         const r = resolveBracket(bracket);
-        await api.updateTournament(t.id, { bracket, status: r.champion ? 'done' : 'running', winner_id: r.champion ?? null });
+        await api.updateTournament(t.id, { bracket, status: r.champion ? 'done' : 'running', ...winnerFields(bracket, r.champion) });
         toast('Arbre modifié'); reload();
       }));
     } else reload();
@@ -1087,8 +1168,9 @@ async function pageTournament(id) {
       if (!s || !s.players.some(Boolean)) return;
       el.classList.add('clickable');
       if (canReport(s)) { el.classList.add('editable'); if (!me.is_admin) el.classList.add('mine'); }
-      el.addEventListener('click', () => matchSheet(t, s, people, reload, canReport(s) ? (me.is_admin ? 'admin' : 'player') : null));
+      el.addEventListener('click', () => matchSheet(t, s, ppl, reload, canReport(s) ? (me.is_admin ? 'admin' : 'player') : null));
     });
+    markReactions(t.id);
   }
   // Tournoi terminé par un joueur : l'admin qui passe distribue les gains
   if (me.is_admin && t.status === 'done' && t.bracket) {
@@ -1098,19 +1180,19 @@ async function pageTournament(id) {
     });
   }
 
-  if (t.bracket?.draw) maybePlayDraw(t, people);
+  if (t.bracket?.draw) maybePlayDraw(t, ppl);
 
   // Mise à jour en direct quand un admin entre un score
   let timer;
   unsubscribe = api.subscribe(id, () => { clearTimeout(timer); timer = setTimeout(() => { if (modal.classList.contains('hidden')) reload(); }, 400); });
 }
 
-function launchDialog(t, placement, reload) {
+function launchDialog(t, placement, reload, teams = null) {
   const n = (placement || []).filter(Boolean).length;
-  if (n < 2) return toast('Il faut au moins 2 participants', 'err');
+  if (n < 2) return toast(teams ? 'Il faut au moins 2 équipes complètes' : 'Il faut au moins 2 participants', 'err');
   const box = openModal(`
     <h2>Lancer « ${esc(t.name)} »</h2>
-    <p>${n} participants · ${FORMAT[t.format]}. Les inscriptions seront fermées.</p>
+    <p>${n} ${teams ? 'équipes' : 'participants'} · ${FORMAT[t.format]}. Les inscriptions seront fermées.</p>
     <p class="small">L'arbre lancé sera celui de l'aperçu (tu peux encore le modifier après le lancement).</p>
     <label class="radio"><input type="checkbox" id="mix" checked> 🎰 Tirage au sort en direct (les places sont tirées au hasard sous les yeux de tous)</label>
     <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="go">C'est parti !</button></div>`);
@@ -1119,8 +1201,31 @@ function launchDialog(t, placement, reload) {
     const pl = live ? placementFor(shuffled(placement.filter(Boolean))) : placement;
     const bracket = bracketFromPlacement(pl, t.format);
     if (live) bracket.draw = { at: Date.now() };
-    await api.updateTournament(t.id, { status: 'running', bracket, seeding: pl, winner_id: null });
+    if (teams) bracket.teams = teams;
+    await api.updateTournament(t.id, { status: 'running', bracket, seeding: pl, winner_id: null, winner_team: null });
     closeModal(); toast('Le tournoi commence !'); reload();
+  }));
+}
+
+// Former une équipe : choisir 2 inscrits sans équipe
+function teamDialog(t, people, inTeam, count, reload) {
+  const free = [...people.entries()].filter(([u]) => !inTeam.has(u));
+  const box = openModal(`
+    <h2>Former une équipe</h2>
+    <p class="small">Choisis 2 joueurs. Ils pourront ensuite donner un nom à leur équipe.</p>
+    <div class="team-pick">${free.map(([u, p]) => `<label class="tp"><input type="checkbox" value="${esc(u)}">${avatar(p, 'av sm')}${uname(p)}</label>`).join('')}</div>
+    <div class="form"><label>Nom de l'équipe<input id="tm-name" maxlength="40" value="Équipe ${count + 1}"></label></div>
+    <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="tm-ok" disabled>Créer l'équipe</button></div>`);
+  const boxes = [...box.querySelectorAll('.tp input')];
+  boxes.forEach(c => c.addEventListener('change', () => {
+    const on = boxes.filter(x => x.checked);
+    boxes.forEach(x => (x.disabled = !x.checked && on.length >= 2));
+    $('#tm-ok', box).disabled = on.length !== 2;
+  }));
+  $('#tm-ok', box).addEventListener('click', () => safe(async () => {
+    const members = boxes.filter(x => x.checked).map(x => x.value);
+    await api.createTeam(t.id, ($('#tm-name', box).value.trim() || `Équipe ${count + 1}`).slice(0, 40), members);
+    closeModal(); toast('Équipe créée !'); reload();
   }));
 }
 
@@ -1157,7 +1262,10 @@ function matchSheet(t, s, people, reload, canEdit) {
     const p = who(i);
     const st = !s.done || s.bye ? '' : s.winner === s.players[i] ? 'win' : 'lose';
     return `<div class="ms-fighter ${st} side${i}">
-      ${p ? `<a href="#/profil/${esc(s.players[i])}" class="ms-av">${avatar(p, 'av xl')}</a>
+      ${p?.is_team ? `<div class="ms-av ms-duo">${p.members.map(m => `<a href="#/profil/${esc(m.id)}">${avatar(m, 'av lg')}</a>`).join('')}</div>
+             <div class="ms-name">${uname(p)}</div>
+             <div class="ms-members">${p.members.map(m => `<a href="#/profil/${esc(m.id)}">${uname(m)}</a>`).join(' & ')}</div>`
+        : p ? `<a href="#/profil/${esc(s.players[i])}" class="ms-av">${avatar(p, 'av xl')}</a>
              <div class="ms-name">${uname(p)}</div>${wtitle(p)}
              <div class="ms-roles">${rolesOf(p).slice(0, 2).map(rolePill).join('')}</div>`
           : `<div class="ms-av empty">?</div><div class="ms-name muted">${s.deadSlot?.[i] ? 'Exempt' : 'En attente…'}</div>`}
@@ -1182,11 +1290,13 @@ function matchSheet(t, s, people, reload, canEdit) {
     </div>
     <div class="ms-status ${s.done ? 'done' : s.playable ? 'live' : ''}">${status}</div>
     ${by ? `<p class="ms-by">Résultat déclaré par ${uname(by)}</p>` : ''}
-    ${s.players[0] && s.players[1] ? '<div class="ms-h2h" id="ms-h2h"></div>' : ''}
+    ${s.players[0] && s.players[1] && !t.bracket.teams ? '<div class="ms-h2h" id="ms-h2h"></div>' : ''}
+    ${s.players[0] && s.players[1] ? '<div class="ms-react" id="ms-react"></div>' : ''}
     ${canEdit && s.playable ? `<div class="actions center"><button class="btn primary" id="ms-edit">${s.done ? '✏️ Corriger le score' : '⚡ Renseigner le score'}</button></div>` : ''}`, 'match-sheet');
   $('#ms-edit', box)?.addEventListener('click', () => scoreDialog(t, s, people, reload, canEdit === 'player'));
+  if (s.players[0] && s.players[1]) drawReactions($('#ms-react', box), t, s.id, people);
   // Face-à-face entre les deux joueurs, tous tournois confondus
-  if (s.players[0] && s.players[1]) safe(() => api.listTournaments()).then(all => {
+  if (s.players[0] && s.players[1] && !t.bracket.teams) safe(() => api.listTournaments()).then(all => {
     const el = $('#ms-h2h', box); if (!el) return;
     const r = headToHead(matchesOf(all || [], s.players[0])).get(s.players[1]) || { w: 0, l: 0 };
     el.innerHTML = r.w + r.l ? `<small>Face-à-face</small><b><span class="${r.w >= r.l ? 'hi' : ''}">${r.w}</span> – <span class="${r.l >= r.w ? 'hi' : ''}">${r.l}</span></b><small>${r.w + r.l} match${r.w + r.l > 1 ? 's' : ''}</small>` : '<small>Premier affrontement entre eux !</small>';
@@ -1232,7 +1342,7 @@ function scoreDialog(t, s, people, reload, asPlayer = false) {
       bracket.results[s.id] = { w: s.players[w], s: s0 !== '' || s1 !== '' ? [Number(s0) || 0, Number(s1) || 0] : null };
     }
     const r = resolveBracket(bracket);
-    await api.updateTournament(t.id, { bracket, status: r.champion ? 'done' : 'running', winner_id: r.champion ?? null });
+    await api.updateTournament(t.id, { bracket, status: r.champion ? 'done' : 'running', ...winnerFields(bracket, r.champion) });
     if (r.champion || t.status === 'done') { await syncRewards(t, bracket); renderNav(); }
     closeModal();
     if (r.champion) toast('🏆 Nous avons un champion ! Les récompenses sont distribuées.'); else toast('Score enregistré');
@@ -1387,7 +1497,7 @@ async function pageProfile(id) {
   const finals = played.filter(x => !x.won && isFinal(x));
   const h2h = [...headToHead(mm)].sort((a, b) => (b[1].w + b[1].l) - (a[1].w + a[1].l));
   const vsMe = id !== state.me.id ? headToHead(mm).get(state.me.id) : null;
-  const wins = tours.filter(t => t.winner_id === id);
+  const wins = tours.filter(t => winnersOf(t).includes(id));
   const color = topRole(p)?.color || '#2fa4e7';
   Promise.all([safe(() => api.listAchievements()), safe(() => api.achievementsDone(id))]).then(([all, done]) => {
     const el = $('#prof-ach'); if (!el || !all) return;
@@ -1437,7 +1547,7 @@ async function pageProfile(id) {
         ${mm.slice(0, 30).map(x => `
           <a href="#/tournoi/${esc(x.t.id)}" class="tline mrow ${x.done ? (x.won ? 'w' : 'l') : 'todo'}">
             <span class="mres">${x.done ? (x.won ? 'V' : 'D') : '⚔️'}</span>
-            <span class="mopp">${avatar(who(x.opp), 'av sm')} <span>${uname(who(x.opp))}</span></span>
+            <span class="mopp">${avatar(oppOf(x, { get: who }), 'av sm')} <span>${uname(oppOf(x, { get: who }))}</span></span>
             <span class="mscore">${x.mine != null ? `${esc(x.mine)} – ${esc(x.theirs)}` : x.done ? '' : 'à jouer'}</span>
             <small class="muted mwhere">${esc(x.t.name)} · ${esc(x.title)}</small>
           </a>`).join('') || '<p class="empty">Aucun match joué pour l\'instant.</p>'}
@@ -1459,7 +1569,7 @@ async function pageProfile(id) {
       <div class="tlist">
         ${tours.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).map(t => `
           <a href="#/tournoi/${esc(t.id)}" class="tline">
-            <span>${t.winner_id === id ? I.trophee + ' ' : ''}${esc(t.name)}</span>
+            <span>${winnersOf(t).includes(id) ? I.trophee + ' ' : ''}${esc(t.name)}</span>
             ${tBadge(t)}
           </a>`).join('') || '<p class="empty">Pas encore de tournoi.</p>'}
       </div>
@@ -1550,6 +1660,53 @@ async function pageLeaderboard() {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
   }));
+}
+
+// ---------- Réactions sur les matchs ----------
+const REACTS = ['🔥', '😂', '😱', '👏'];
+let reactCache = { tid: null, rows: [] };
+async function loadReactions(tid, fresh) {
+  if (fresh || reactCache.tid !== tid) reactCache = { tid, rows: (await safe(() => api.listReactions?.(tid))) || [] };
+  return reactCache.rows;
+}
+// Petite pastille sur chaque match de l'arbre : la réaction la plus utilisée + le total
+async function markReactions(tid) {
+  const rows = await loadReactions(tid, true);
+  document.querySelectorAll('#real-bracket .match[data-mid]').forEach(el => {
+    el.querySelector('.mreact')?.remove();
+    const mine = rows.filter(r => r.match_id === el.dataset.mid);
+    if (!mine.length) return;
+    const top = REACTS.map(e => [e, mine.filter(r => r.emoji === e).length]).sort((a, b) => b[1] - a[1])[0][0];
+    el.insertAdjacentHTML('beforeend', `<span class="mreact">${top} ${mine.length}</span>`);
+  });
+}
+async function drawReactions(el, t, mid, people) {
+  if (!el) return;
+  const me = state.me.id;
+  const rows = (await loadReactions(t.id)).filter(r => r.match_id === mid);
+  el.innerHTML = `<small>Ta réaction</small><div class="rx">${REACTS.map(e => {
+    const by = rows.filter(r => r.emoji === e);
+    const names = by.map(r => people.get(r.user_id)?.username).filter(Boolean).join(', ');
+    return `<button class="rxb ${by.some(r => r.user_id === me) ? 'on' : ''}" data-rx="${e}" title="${esc(names)}"><span>${e}</span>${by.length ? `<b>${by.length}</b>` : ''}</button>`;
+  }).join('')}</div>`;
+  el.querySelectorAll('[data-rx]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    const e = b.dataset.rx, on = !b.classList.contains('on');
+    b.classList.add('pop');
+    await api.react(t.id, mid, me, e, on);
+    const rs = reactCache.rows.filter(r => !(r.match_id === mid && r.user_id === me && r.emoji === e));
+    if (on) rs.push({ match_id: mid, user_id: me, emoji: e });
+    reactCache.rows = rs;
+    if (on) floatEmoji(b, e);
+    drawReactions(el, t, mid, people); markReactions(t.id);
+  })));
+}
+function floatEmoji(el, e) {
+  const r = el.getBoundingClientRect();
+  for (let i = 0; i < 6; i++) {
+    const s = document.createElement('span'); s.className = 'rx-float'; s.textContent = e;
+    s.style.cssText = `left:${r.left + r.width / 2 + (i - 2.5) * 10}px;top:${r.top}px;--dx:${(i - 2.5) * 14}px;animation-delay:${i * .05}s`;
+    document.body.appendChild(s); setTimeout(() => s.remove(), 1300);
+  }
 }
 
 // ---------- Quiz Nintendo du jour ----------
@@ -1813,7 +1970,7 @@ async function pageParty(cid) {
     const live = [], doneNow = new Map();
     tours.forEach(t => {
       if (!t.bracket) return;
-      maybePlayDraw(t, people);
+      maybePlayDraw(t, withTeams(t.bracket, people));
       const st = resolveBracket(t.bracket).state;
       t.bracket.matches.forEach(m => {
         const s = st[m.id];
@@ -1833,6 +1990,7 @@ async function pageParty(cid) {
     const finished = tours.length && tours.every(t => t.status === 'done');
     const line = x => {
       const [a, b] = x.s.players, sc = x.s.result?.s;
+      const who = id => teamOf(x.t, id) ? teamPerson(id, teamOf(x.t, id), m => people.get(m)) : people.get(id) || { id, username: '?' };
       return `<div class="pm ${x.s.done ? 'done' : 'live'}">
         <span class="pm-t">${esc(x.t.name)} · ${esc(roundTitle(x.t.bracket, x.m.b, x.m.r))}</span>
         <div class="pm-row">
@@ -1936,7 +2094,7 @@ async function pagePantheon() {
   const halls = done.map(c => {
     const ids = new Set(c.tournaments.map(t => t.id)), tot = new Map();
     ledger.filter(l => ids.has(l.tournament_id)).forEach(l => tot.set(l.user_id, (tot.get(l.user_id) || 0) + (l.points || 0)));
-    const titles = uid => c.tournaments.filter(t => t.winner_id === uid).length;
+    const titles = uid => c.tournaments.filter(t => winnersOf(t).includes(uid)).length;
     const rank = [...tot].sort((a, b) => b[1] - a[1] || titles(b[0]) - titles(a[0])).slice(0, 3);
     return { c, rank, titles };
   }).filter(h => h.rank.length);
@@ -1966,7 +2124,7 @@ async function pagePantheon() {
           <h2><a href="#/competition/${esc(c.id)}">${esc(c.name)}</a></h2>
           <p class="small">${esc(date(c))} · ${c.tournaments.length} tournoi${c.tournaments.length > 1 ? 's' : ''}</p>
           ${rest.length ? `<div class="hall-podium">${rest.map(([uid, n], i) => `<a href="#/profil/${esc(uid)}" class="hp">${[I.medal2, I.medal3][i]} ${avatar(who(uid), 'av sm')} <span>${uname(who(uid))}</span> ${pts(n)}</a>`).join('')}</div>` : ''}
-          <div class="hall-tours">${c.tournaments.filter(t => t.winner_id).map(t => `<a href="#/tournoi/${esc(t.id)}" class="trophy">${I.trophee} ${esc(t.name)} : <b>${esc(who(t.winner_id).username)}</b></a>`).join('')}</div>
+          <div class="hall-tours">${c.tournaments.filter(t => winnersOf(t).length).map(t => `<a href="#/tournoi/${esc(t.id)}" class="trophy">${I.trophee} ${esc(t.name)} : <b>${esc(t.winner_team ? teamOf(t, t.winner_team)?.name || '?' : who(t.winner_id).username)}</b></a>`).join('')}</div>
         </div>
       </section>`;
     }).join('') || '<p class="empty">Aucune compétition terminée pour l\'instant : la première statue t\'attend peut-être !</p>'}`;

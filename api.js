@@ -91,6 +91,16 @@ async function supabaseApi() {
       return files.filter(f => f.id).map(f => ({ name: f.name, path: 'galerie/' + f.name, url: sb.storage.from('wuhu').getPublicUrl('galerie/' + f.name).data.publicUrl }));
     },
     deleteImage: async path => ok(await sb.storage.from('wuhu').remove([path])),
+    // ----- Équipes (2 contre 2) -----
+    listTeams: async tid => ok(await sb.from('wuhu_teams').select('*').eq('tournament_id', tid).order('created_at')),
+    createTeam: async (tid, name, members) => ok(await sb.from('wuhu_teams').insert({ tournament_id: tid, name, members })),
+    deleteTeam: async id => ok(await sb.from('wuhu_teams').delete().eq('id', id)),
+    renameTeam: async (id, name) => ok(await sb.rpc('wuhu_rename_team', { p_team: id, p_name: name })),
+    // ----- Réactions sur les matchs -----
+    listReactions: async tid => ok(await sb.from('wuhu_match_reactions').select('match_id, user_id, emoji').eq('tournament_id', tid)),
+    react: async (tid, mid, uid, emoji, on) => ok(on
+      ? await sb.from('wuhu_match_reactions').insert({ tournament_id: tid, match_id: mid, user_id: uid, emoji })
+      : await sb.from('wuhu_match_reactions').delete().eq('tournament_id', tid).eq('match_id', mid).eq('user_id', uid).eq('emoji', emoji)),
     // ----- Quiz du jour -----
     quizByDay: async day => ok(await sb.from('wuhu_quiz_questions').select('*').eq('day', day).maybeSingle()),
     myQuizAnswer: async (qid, uid) => ok(await sb.from('wuhu_quiz_answers').select('*').eq('question_id', qid).eq('user_id', uid).maybeSingle()),
@@ -237,6 +247,8 @@ function demoApi() {
     { id: 'q2', day: dayStr(1), question: 'Quel est le vrai nom de Toad ?', choices: ['Toad', 'Kinopio', 'Toadsworth'], reward: 15, key: { answer: 0 } },
   ];
   let quizAns = [];
+  let teams = [];
+  let reactions = [['u1', '🔥'], ['u2', '🔥'], ['u3', '😂'], ['u4', '🔥'], ['u5', '😱']].map(([user_id, emoji]) => ({ tournament_id: 't2', match_id: 'W1-0', user_id, emoji }));
   const demoImg = (h, e) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${h},70%,60%)"/><text x="200" y="175" font-size="90" text-anchor="middle">${e}</text></svg>`);
   let photos = [['🎳', 200, 'La finale de bowling !', ['u1', 'u2', 'u3']], ['🍕', 30, 'Pause pizza', ['u2']], ['🏆', 50, 'Les champions', ['u1', 'u2', 'u3', 'u4', 'u5']], ['🎮', 260, null, []], ['🎾', 120, 'Match serré', ['u4']]]
     .map(([e, h, caption, likes], i) => ({ id: 'ph' + i, competition_id: 'c1', user_id: 'u' + (i + 1), path: 'x', url: demoImg(h, e), caption, created_at: new Date(Date.now() - i * 3e6).toISOString(), likes: likes.map(user_id => ({ user_id })) }));
@@ -261,7 +273,9 @@ function demoApi() {
   db.tournaments.push({ id: 't8', name: 'Bowling', game: 'Wii Sports', format: 'single', status: 'done', bracket: null, winner_id: 'u1', created_at: '2026-10-04', competition_id: 'c0' },
     { id: 't9', name: 'Tennis', game: 'Wii Sports', format: 'single', status: 'done', bracket: null, winner_id: 'u2', created_at: '2026-10-04', competition_id: 'c0' });
   [['u1', 't8', 60], ['u1', 't9', 20], ['u2', 't9', 60], ['u2', 't8', 10], ['u3', 't8', 25], ['u0', 't9', 30]].forEach(([u, t, n]) => addL(u, 0, n, 'Démo', t));
-  db.tournaments.push({ id: 't3', name: 'Mario Kart – Coupe Champignon', game: 'Mario Kart Wii', description: null, format: 'single', status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-12', competition_id: null });
+  db.tournaments.push({ id: 't3', name: 'Mario Kart – Coupe Champignon', game: 'Mario Kart Wii', description: null, format: 'single', team_size: 2, status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-12', competition_id: null });
+  ['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't3', user_id: u, joined_at: '2026-11-0' + i }));
+  teams.push({ id: 'tmA', tournament_id: 't3', name: 'Les Mii Furieux', members: ['u0', 'u1'], created_at: '1' }, { id: 'tmB', tournament_id: 't3', name: 'Équipe Banane', members: ['u2', 'u3'], created_at: '2' }, { id: 'tmC', tournament_id: 't3', name: 'Turbo Champis', members: ['u4', 'u5'], created_at: '3' });
   ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].forEach((u, i) => db.participants.push({ tournament_id: 't1', user_id: u, joined_at: '2026-11-1' + i }));
   ['u0', 'u1', 'u2', 'u3', 'u4', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't2', user_id: u, joined_at: '2026-11-1' + i }));
   const prof = id => members.find(m => m.id === id);
@@ -313,6 +327,18 @@ function demoApi() {
       return url;
     },
     async listGallery() { return clone(gallery); },
+    async listTeams(tid) { return clone(teams.filter(x => x.tournament_id === tid)); },
+    async createTeam(tid, name, members) { teams.push({ id: 'tm' + Date.now() + Math.floor(Math.random() * 1e4), tournament_id: tid, name, members, created_at: new Date().toISOString() }); },
+    async deleteTeam(id) { teams = teams.filter(x => x.id !== id); },
+    async renameTeam(id, name) {
+      const x = teams.find(y => y.id === id); if (x) x.name = name;
+      const t = db.tournaments.find(y => y.bracket?.teams?.[id]); if (t) t.bracket.teams[id].name = name;
+    },
+    async listReactions(tid) { return clone(reactions.filter(r => r.tournament_id === tid)); },
+    async react(tid, mid, uid, emoji, on) {
+      reactions = reactions.filter(r => !(r.tournament_id === tid && r.match_id === mid && r.user_id === uid && r.emoji === emoji));
+      if (on) reactions.push({ tournament_id: tid, match_id: mid, user_id: uid, emoji });
+    },
     async quizByDay(day) { const q = quiz.find(x => x.day === day); return q ? { ...clone(q), key: undefined } : null; },
     async myQuizAnswer(qid, uid) { return clone(quizAns.find(a => a.question_id === qid && a.user_id === uid) || null); },
     async quizAnswer(qid, choice) {
@@ -373,7 +399,8 @@ function demoApi() {
       const t = db.tournaments.find(x => x.id === tid);
       t.bracket.results[mid] = { w, s: s0 == null && s1 == null ? null : [s0 || 0, s1 || 0], by: me.id };
       const r = resolveBracket(t.bracket);
-      t.status = r.champion ? 'done' : 'running'; t.winner_id = r.champion ?? null;
+      t.status = r.champion ? 'done' : 'running';
+      if (t.bracket.teams) { t.winner_id = null; t.winner_team = r.champion ?? null; } else t.winner_id = r.champion ?? null;
       notify(); return { champion: r.champion ?? null };
     },
     async balances() {
