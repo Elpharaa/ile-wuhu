@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119b';
+import { api, DEMO } from './api.js?v=20261119c';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119b';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119c';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -1859,7 +1859,8 @@ async function quizCard(q) {
       return `<button class="qc ${cls}" data-qc="${i}" ${mine ? 'disabled' : ''}><b>${L[i]}</b>${esc(c)}</button>`;
     }).join('')}</div>
     ${mine ? `<p class="quiz-res ${mine.correct ? 'ok' : 'ko'}">${mine.correct ? `🎉 Bonne réponse ! +${q.reward} ${I.rubis}` : '😅 Raté ! Retente ta chance demain.'}
-      ${res?.total ? `<small>${res.good} sur ${res.total} ont trouvé (${Math.round(100 * res.good / res.total)} %)</small>` : ''}</p>`
+      ${res?.total ? `<small>${res.good} sur ${res.total} ont trouvé (${Math.round(100 * res.good / res.total)} %)</small>` : ''}</p>
+      ${res?.explanation ? `<p class="quiz-why">💡 ${esc(res.explanation)}</p>` : ''}`
       : `<p class="small">Une seule réponse possible : réfléchis bien ! Bonne réponse = ${rubis(q.reward)}</p>`}`;
 }
 async function drawQuiz(slotSel = '#quiz-slot') {
@@ -1902,33 +1903,62 @@ async function drawQuizAdmin() {
   const list = (await safe(() => api.quizList())) || [];
   const today = parisDay();
   const next = (() => { const used = new Set(list.map(q => q.day)); let d = new Date(); for (;;) { const s = parisDay(d); if (!used.has(s)) return s; d = new Date(+d + 864e5); } })();
-  const keyOf = q => (Array.isArray(q.key) ? q.key[0] : q.key)?.answer;
-  const upcoming = list.filter(q => q.day >= today).sort((a, b) => a.day.localeCompare(b.day));
-  const past = list.filter(q => q.day < today);
+  const keyRow = q => (Array.isArray(q.key) ? q.key[0] : q.key) || {};
+  const keyOf = q => keyRow(q).answer;
+  const upcoming = list.filter(q => q.day && q.day >= today).sort((a, b) => a.day.localeCompare(b.day));
+  const past = list.filter(q => q.day && q.day < today);
+  const bank = list.filter(q => !q.day);
   const row = q => `<div class="qa-row ${q.day === today ? 'today' : ''}">
-      <span class="qa-day">${q.day === today ? 'Aujourd\'hui' : new Date(q.day + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-      <span class="qa-q">${esc(q.question)}<small>✓ ${esc(q.choices[keyOf(q)] ?? '?')} · ${q.reward} rubis</small></span>
-      ${q.day >= today ? `<button class="btn ghost sm" data-qedit="${esc(q.id)}">Modifier</button>` : ''}
+      <span class="qa-day">${!q.day ? '🎮 Banque' : q.day === today ? 'Aujourd\'hui' : new Date(q.day + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+      <span class="qa-q">${q.image_url ? '🖼️ ' : ''}${esc(q.question)}<small>✓ ${esc(q.choices[keyOf(q)] ?? '?')}${q.day ? ` · ${q.reward} rubis` : ''}${keyRow(q).explanation ? ' · 💡' : ''}</small></span>
+      ${!q.day || q.day >= today ? `<button class="btn ghost sm" data-qedit="${esc(q.id)}">Modifier</button>` : ''}
       <button class="btn danger sm" data-qdel="${esc(q.id)}">✕</button></div>`;
   box.innerHTML = `
     <div class="page-head"><h2>Gérer les questions <span class="admin-label">Admin</span></h2><button class="btn primary sm" id="q-add">+ Nouvelle question</button></div>
     <p class="small">Une question par jour. Les membres ne voient une question que le jour J, et la bonne réponse reste secrète.
     ${upcoming.length ? `Questions prévues jusqu'au <b>${esc(new Date(upcoming.at(-1).day + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</b>.` : '<b>Aucune question prévue : pense à en ajouter !</b>'}</p>
     <div class="qa-list">${upcoming.map(row).join('')}</div>
+    <h3 class="qa-bank-h">🎮 Banque du Quiz Battle <small class="muted">(${bank.length + past.length} question${bank.length + past.length > 1 ? 's' : ''} jouable${bank.length + past.length > 1 ? 's' : ''})</small></h3>
+    <p class="small">Le Quiz Battle sur Discord (<b>/quizbattle</b>) pioche dans les questions de la banque (sans date) et dans les questions du jour déjà passées.</p>
+    <div class="qa-list">${bank.map(row).join('') || '<p class="empty">Aucune question dans la banque pour l\'instant.</p>'}</div>
     ${past.length ? `<details class="qa-past"><summary>Questions passées (${past.length})</summary><div class="qa-list">${past.map(row).join('')}</div></details>` : ''}`;
   const form = q => {
     const ch = q?.choices || ['', '', '', ''];
     const ans = q ? keyOf(q) : 0;
+    let img = q?.image_url || '';
+    const isBank = q ? !q.day : false;
     const f = openModal(`
       <h2>${q ? 'Modifier la question' : 'Nouvelle question'}</h2>
       <div class="form qf">
-      <label>Jour<input type="date" id="qf-day" value="${esc(q?.day || next)}" min="${today}"></label>
+      <div class="qf-type">
+        <label class="qf-opt"><input type="radio" name="qf-type" value="day" ${isBank ? '' : 'checked'}> 📅 Question du jour</label>
+        <label class="qf-opt"><input type="radio" name="qf-type" value="bank" ${isBank ? 'checked' : ''}> 🎮 Banque du Quiz Battle</label>
+      </div>
+      <label id="qf-day-l">Jour<input type="date" id="qf-day" value="${esc(q?.day || next)}" min="${today}"></label>
       <label>Question<textarea id="qf-q" rows="2" maxlength="300" placeholder="Ex : Quel est le premier jeu où apparaît Wario ?">${esc(q?.question || '')}</textarea></label>
       <p class="small">Réponses (2 à 4) : coche la bonne.</p>
       ${[0, 1, 2, 3].map(i => `<div class="qf-ch"><input type="radio" name="qf-ok" value="${i}" ${i === ans ? 'checked' : ''}><input type="text" id="qf-c${i}" maxlength="120" placeholder="Réponse ${'ABCD'[i]}${i > 1 ? ' (facultatif)' : ''}" value="${esc(ch[i] || '')}"></div>`).join('')}
-      <label>Rubis pour une bonne réponse<input type="number" id="qf-r" min="0" max="500" value="${q?.reward ?? 10}"></label>
+      <label>Explication de la bonne réponse <small class="muted">(facultatif, affichée après la réponse)</small><textarea id="qf-x" rows="2" maxlength="500" placeholder="Ex : Wario apparaît pour la première fois dans Super Mario Land 2 (1992).">${esc(keyRow(q || {}).explanation || '')}</textarea></label>
+      <div class="qf-img">
+        <span class="small">Image <span class="muted">(facultatif, visible aussi sur Discord)</span></span>
+        <div class="qf-img-row"><div id="qf-prev" class="qf-prev">${img ? `<img src="${esc(img)}" alt="">` : '🖼️'}</div>
+          <label class="btn ghost sm">📷 Choisir une image<input type="file" id="qf-file" accept="image/*" hidden></label>
+          <button type="button" class="btn ghost sm" id="qf-noimg" ${img ? '' : 'hidden'}>Retirer</button></div>
+      </div>
+      <label id="qf-r-l">Rubis pour une bonne réponse<input type="number" id="qf-r" min="0" max="500" value="${q?.reward ?? 10}"></label>
       </div>
       <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="qf-save">Enregistrer</button></div>`);
+    const bankMode = () => f.querySelector('[name=qf-type]:checked')?.value === 'bank';
+    const syncType = () => { $('#qf-day-l', f).hidden = bankMode(); $('#qf-r-l', f).hidden = bankMode(); };
+    f.querySelectorAll('[name=qf-type]').forEach(r => r.addEventListener('change', syncType)); syncType();
+    $('#qf-file', f).addEventListener('change', e => safe(async () => {
+      const file = e.target.files?.[0]; if (!file) return;
+      $('#qf-prev', f).innerHTML = '<span class="small">Envoi…</span>';
+      const blob = await shrinkPhoto(file);
+      img = await api.uploadImage(new File([blob], 'quiz.jpg', { type: 'image/jpeg' }), 'quiz');
+      $('#qf-prev', f).innerHTML = `<img src="${esc(img)}" alt="">`; $('#qf-noimg', f).hidden = false;
+    }));
+    $('#qf-noimg', f).addEventListener('click', () => { img = ''; $('#qf-prev', f).innerHTML = '🖼️'; $('#qf-noimg', f).hidden = true; });
     $('#qf-save', f).addEventListener('click', () => safe(async () => {
       const raw = [0, 1, 2, 3].map(i => $('#qf-c' + i, f).value.trim());
       const okIdx = Number(f.querySelector('[name=qf-ok]:checked')?.value ?? 0);
@@ -1937,8 +1967,10 @@ async function drawQuizAdmin() {
       if (keep.length < 2) return toast('Il faut au moins 2 réponses', 'err');
       const question = $('#qf-q', f).value.trim();
       if (question.length < 3) return toast('Écris la question', 'err');
-      await api.quizSave({ id: q?.id, day: $('#qf-day', f).value, question, choices: keep.map(([c]) => c),
-        answer: keep.findIndex(([, i]) => i === okIdx), reward: Number($('#qf-r', f).value) || 0 });
+      if (!bankMode() && !$('#qf-day', f).value) return toast('Choisis le jour', 'err');
+      await api.quizSave({ id: q?.id, day: bankMode() ? null : $('#qf-day', f).value, question, choices: keep.map(([c]) => c),
+        answer: keep.findIndex(([, i]) => i === okIdx), reward: bankMode() ? 0 : Number($('#qf-r', f).value) || 0,
+        image_url: img || null, explanation: $('#qf-x', f).value.trim() });
       closeModal(); toast('Question enregistrée'); drawQuizAdmin(); drawQuiz('#quiz-page-slot');
     }));
   };

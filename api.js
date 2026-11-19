@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119b';
+import { resolveBracket } from './bracket.js?v=20261119c';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -112,8 +112,8 @@ async function supabaseApi() {
     quizAnswer: async (qid, choice) => ok(await sb.rpc('wuhu_quiz_answer', { p_question: qid, p_choice: choice })),
     quizResult: async qid => ok(await sb.rpc('wuhu_quiz_result', { p_question: qid })),
     quizBoard: async () => ok(await sb.rpc('wuhu_quiz_board')),
-    quizList: async () => ok(await sb.from('wuhu_quiz_questions').select('*, key:wuhu_quiz_keys(answer)').order('day', { ascending: false })),
-    quizSave: async q => ok(await sb.rpc('wuhu_quiz_save', { p_id: q.id || null, p_day: q.day, p_question: q.question, p_choices: q.choices, p_answer: q.answer, p_reward: q.reward, p_image: q.image_url || null })),
+    quizList: async () => ok(await sb.from('wuhu_quiz_questions').select('*, key:wuhu_quiz_keys(answer, explanation)').order('day', { ascending: false, nullsFirst: false })),
+    quizSave: async q => ok(await sb.rpc('wuhu_quiz_save', { p_id: q.id || null, p_day: q.day || null, p_question: q.question, p_choices: q.choices, p_answer: q.answer, p_reward: q.reward, p_image: q.image_url || null, p_explanation: q.explanation || null })),
     quizDelete: async id => ok(await sb.from('wuhu_quiz_questions').delete().eq('id', id)),
     // ----- Photos des events (envoyées par les membres) -----
     listPhotos: async cid => ok(await sb.from('wuhu_photos').select('*, likes:wuhu_photo_likes(user_id)').eq('competition_id', cid).order('created_at', { ascending: false })),
@@ -249,7 +249,8 @@ function demoApi() {
   let gallery = [];
   const dayStr = d => new Date(Date.now() + d * 864e5).toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
   let quiz = [
-    { id: 'q1', day: dayStr(0), question: 'Dans Wii Sports Resort, comment s\'appelle l\'île où se déroulent les sports ?', choices: ['Isle Delfino', 'L\'île Wuhu', 'L\'île Pikmin', 'Koholint'], reward: 10, key: { answer: 1 } },
+    { id: 'q1', day: dayStr(0), question: 'Dans Wii Sports Resort, comment s\'appelle l\'île où se déroulent les sports ?', choices: ['Isle Delfino', 'L\'île Wuhu', 'L\'île Pikmin', 'Koholint'], reward: 10, key: { answer: 1, explanation: 'L\'île Wuhu apparaît dans Wii Fit, Wii Sports Resort et Pilotwings Resort.' } },
+    { id: 'qb1', day: null, question: 'Quelle console est sortie en 2006 ?', choices: ['GameCube', 'Wii', 'Wii U'], reward: 10, key: { answer: 1, explanation: null } },
     { id: 'q2', day: dayStr(1), question: 'Quel est le vrai nom de Toad ?', choices: ['Toad', 'Kinopio', 'Toadsworth'], reward: 15, key: { answer: 0 } },
   ];
   let quizAns = [];
@@ -358,13 +359,13 @@ function demoApi() {
       const q = quiz.find(x => x.id === qid); const ok2 = choice === q.key.answer;
       quizAns.push({ question_id: qid, user_id: me.id, choice, correct: ok2 });
       if (ok2) addL(me.id, q.reward, 0, 'Quiz du jour : bonne réponse');
-      return { correct: ok2, answer: q.key.answer, reward: ok2 ? q.reward : 0, total: 7, good: 4 };
+      return { correct: ok2, answer: q.key.answer, explanation: q.key.explanation || null, reward: ok2 ? q.reward : 0, total: 7, good: 4 };
     },
-    async quizResult(qid) { const q = quiz.find(x => x.id === qid); return { answer: q.key.answer, total: 7, good: 4 }; },
+    async quizResult(qid) { const q = quiz.find(x => x.id === qid); return { answer: q.key.answer, explanation: q.key.explanation || null, total: 7, good: 4 }; },
     async quizBoard() { return [{ user_id: 'u2', good: 12, played: 14 }, { user_id: 'u1', good: 10, played: 15 }, { user_id: 'u0', good: 7, played: 9 }, { user_id: 'u5', good: 3, played: 8 }]; },
     async quizList() { return clone(quiz); },
     async quizSave(q) {
-      const x = { id: q.id || 'q' + Date.now(), day: q.day, question: q.question, choices: q.choices, reward: q.reward, image_url: q.image_url, key: { answer: q.answer } };
+      const x = { id: q.id || 'q' + Date.now(), day: q.day || null, question: q.question, choices: q.choices, reward: q.reward, image_url: q.image_url, key: { answer: q.answer, explanation: q.explanation || null } };
       quiz = quiz.filter(y => y.id !== x.id); quiz.push(x); return x.id;
     },
     async quizDelete(id) { quiz = quiz.filter(q => q.id !== id); },
