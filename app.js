@@ -764,19 +764,12 @@ async function tournamentForm(t = null, presetComp = null) {
       <div class="row">
         <label>Format
           <select name="format" ${t?.status === 'running' || t?.status === 'done' ? 'disabled' : ''}>
-            <option value="single" ${t?.format !== 'double' ? 'selected' : ''}>Élimination directe</option>
-            <option value="double" ${t?.format === 'double' ? 'selected' : ''}>Double élimination</option>
-            <option value="ffa4" ${t?.format === 'ffa4' ? 'selected' : ''}>Chacun pour soi à 4 (1 vs 1 vs 1 vs 1)</option>
+${[['single|1','Élimination directe'],['double|1','Double élimination'],['single|2','👥 2 contre 2 – élimination directe'],['double|2','👥 2 contre 2 – double élimination'],['ffa4|1','Chacun pour soi à 4 (1 vs 1 vs 1 vs 1)']]
+              .map(([v, l]) => `<option value="${v}" ${v === `${t?.format || 'single'}|${t?.team_size === 2 ? 2 : 1}` ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
         </label>
         <label>Places max<input name="max_players" type="number" min="2" max="128" value="${esc(t?.max_players)}" placeholder="Illimité"></label>
       </div>
-      <label>Mode
-        <select name="team_size" ${t?.status === 'running' || t?.status === 'done' ? 'disabled' : ''}>
-          <option value="1" ${t?.team_size !== 2 ? 'selected' : ''}>👤 Chacun pour soi (1 contre 1)</option>
-          <option value="2" ${t?.team_size === 2 ? 'selected' : ''}>👥 En équipe (2 contre 2)</option>
-        </select>
-      </label>
       <label>Date et heure (optionnel)<input name="starts_at" type="datetime-local" value="${toLocal(t?.starts_at)}"></label>
       <label>Compétition
         <select name="competition_id">
@@ -808,8 +801,7 @@ async function tournamentForm(t = null, presetComp = null) {
       max_players: f.get('max_players') ? Number(f.get('max_players')) : null,
       starts_at: f.get('starts_at') ? new Date(f.get('starts_at')).toISOString() : null,
     };
-    if (f.get('format')) data.format = f.get('format');
-    if (f.get('team_size')) data.team_size = Number(f.get('team_size'));
+    if (f.get('format')) { const [fm, ts] = f.get('format').split('|'); data.format = fm; data.team_size = Number(ts) || 1; }
     if (data.format === 'ffa4') data.team_size = 1;  // à 4, chacun joue pour soi
     data.competition_id = f.get('competition_id') || null;
     data.rewards = {};
