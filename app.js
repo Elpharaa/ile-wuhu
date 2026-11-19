@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119p';
+import { api, DEMO } from './api.js?v=20261119q';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119p';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119q';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -206,11 +206,12 @@ const modal = document.getElementById('modal');
 function openModal(html, cls = '') {
   const mb = modal.querySelector('.modal-box');
   mb.className = 'modal-box' + (cls ? ' ' + cls : '');
+  modal._onClose?.(); modal._onClose = null;
   mb.innerHTML = html;
   modal.classList.remove('hidden');
   return modal.querySelector('.modal-box');
 }
-function closeModal() { modal.classList.add('hidden'); }
+function closeModal() { modal.classList.add('hidden'); const f = modal._onClose; modal._onClose = null; f?.(); }
 modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-close]')) closeModal(); });
 
 // Petite onde au clic sur les boutons
@@ -2806,13 +2807,13 @@ async function drawBtAdmin() {
   const row = t => `<div class="qa-row ${t.day === today ? 'today' : ''}">
       <span class="qa-day">${!t.day ? '🎮 Banque' : t.day === today ? 'Aujourd\'hui' : new Date(t.day + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
       <span class="qa-q">🎵 ${esc(keyOf(t).title || t.choices[keyOf(t).answer] || '?')}<small>✓ ${esc(t.choices[keyOf(t).answer] ?? '?')} · ${mmss(t.start_s)} (${t.duration_s} s)</small></span>
-      <button class="btn ghost sm" data-btedit="${esc(t.id)}">Modifier</button><button class="btn danger sm" data-btdel="${esc(t.id)}">✕</button></div>`;
+      <button class="btn ghost sm" data-btplay="${esc(t.id)}">▶️ Écouter</button><button class="btn ghost sm" data-btedit="${esc(t.id)}">Modifier</button><button class="btn danger sm" data-btdel="${esc(t.id)}">✕</button></div>`;
   box.innerHTML = `
     <div class="page-head"><h2>Gérer le blind test <span class="admin-label">Admin</span></h2><button class="btn primary sm" id="bt-add">+ Nouvelle musique</button></div>
     <p class="small">Colle le lien YouTube d'une musique Nintendo, choisis le début de l'extrait et les réponses. Teste toujours l'extrait : certaines vidéos refusent d'être lues ailleurs que sur YouTube.</p>
     <h3 class="qa-bank-h">📅 Blind tests du jour</h3>
     <div class="qa-list">${upcoming.map(row).join('') || '<p class="empty">Aucun blind test prévu.</p>'}</div>
-    <h3 class="qa-bank-h">🎮 Banque du multijoueur <small class="muted">(${bank.length + past.length} musique${bank.length + past.length > 1 ? 's' : ''})</small></h3>
+    <h3 class="qa-bank-h">🎮 Banque du multijoueur <small class="muted">(${list.length} musique${list.length > 1 ? 's' : ''} en jeu, blind tests du jour compris)</small></h3>
     <div class="qa-list">${bank.map(row).join('') || '<p class="empty">La banque est vide : il faut au moins 5 musiques pour le multijoueur.</p>'}</div>
     ${past.length ? `<details class="qa-past"><summary>Blind tests passés (${past.length})</summary><div class="qa-list">${past.map(row).join('')}</div></details>` : ''}`;
   const form = t => {
@@ -2863,6 +2864,17 @@ async function drawBtAdmin() {
     }));
   };
   $('#bt-add', box).addEventListener('click', () => form(null));
+  // écouter l'extrait tel qu'il est réglé (début + durée), vidéo visible pour vérifier
+  box.querySelectorAll('[data-btplay]').forEach(b => b.addEventListener('click', () => {
+    const t = list.find(x => x.id === b.dataset.btplay); if (!t) return;
+    const k = keyOf(t);
+    const m = openModal(`<h2>🎧 ${esc(k.title || t.choices[k.answer] || 'Extrait')}</h2>
+      <p class="small">Début ${mmss(t.start_s)} · ${t.duration_s} s · réponse : <b>${esc(t.choices[k.answer] ?? '?')}</b></p>
+      <div id="bt-listen"></div><div class="actions"><button type="button" class="btn ghost" data-close>Fermer</button></div>`);
+    const st = btStage($('#bt-listen', m), { ...t, id: 'listen' + Date.now() });
+    $('#bt-listen .bt-stage', m).classList.add('revealed');
+    modal._onClose = () => st.destroy();
+  }));
   box.querySelectorAll('[data-btedit]').forEach(b => b.addEventListener('click', () => form(list.find(x => x.id === b.dataset.btedit))));
   box.querySelectorAll('[data-btdel]').forEach(b => b.addEventListener('click', () => safe(async () => {
     if (!confirm('Supprimer cette musique ?')) return;
