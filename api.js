@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261120c';
+import { resolveBracket } from './bracket.js?v=20261120d';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -105,6 +105,7 @@ async function supabaseApi() {
     },
     // ----- Défis amicaux (aussi lancés depuis Discord avec /defi) -----
     myDuels: async () => ok(await sb.rpc('wuhu_my_duels')),
+    liveDuels: async () => ok(await sb.rpc('wuhu_live_duels')),
     createDuel: async (opp, game) => ok(await sb.rpc('wuhu_duel_create', { p_opponent: opp, p_game: game || null })),
     duelAct: async (id, action, winnerD) => ok(await sb.rpc('wuhu_duel_act', { p_id: id, p_action: action, p_winner_d: winnerD || null })),
     react: async (tid, mid, uid, emoji, on) => ok(on
@@ -409,6 +410,8 @@ function demoApi() {
     async listReactions(tid) { return clone(reactions.filter(r => r.tournament_id === tid)); },
     async listDuels(uid) { return clone(duels.filter(d => !uid || d.challenger === uid || d.opponent === uid)); },
     async myDuels() { return { me: 'D-u0', duels: clone(live) }; },
+    async liveDuels() { return [{ id: 'dlv1', challenger: 'u3', opponent: 'u5', game: 'Smash Bros.', status: 'accepted', winner: null, done_at: null }]
+      .concat(clone(live.filter(d => ['accepted', 'claimed', 'done'].includes(d.status)))); },
     async createDuel(opp, game) {
       const o = prof(opp); if (!o || o.is_guest) throw new Error('Ce membre ne peut pas être défié');
       if (live.some(d => ['pending', 'accepted', 'claimed'].includes(d.status) && [d.challenger, d.opponent].includes(opp))) throw new Error('Vous avez déjà un défi en cours tous les deux : terminez-le d\'abord !');

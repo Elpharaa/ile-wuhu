@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120c';
+import { api, DEMO } from './api.js?v=20261120d';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120c';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120d';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2198,6 +2198,7 @@ async function pageParty(cid) {
   const feed = [];
   partyTimers.forEach(clearInterval); partyTimers = [];
   const stage = partyStage(id => people.get(id));
+  const seenDuels = new Set();
 
   const draw = async () => {
     if (!location.hash.startsWith('#/soiree/')) return;
@@ -2227,10 +2228,15 @@ async function pageParty(cid) {
     const [regs, parts] = await Promise.all([safe(() => api.compMembers(cid)),
       Promise.all(tours.map(t => safe(() => api.listParticipants(t.id))))]);
     const ids = new Set([...(regs || []).map(r => r.user_id), ...(parts || []).flat().filter(Boolean).map(p => p.user_id)]);
+    // les défis en cours entre membres : ils se bagarrent aussi sur l'île
+    const duelsNow = ((await safe(() => api.liveDuels?.())) || []).filter(d => people.has(d.challenger) && people.has(d.opponent));
+    const duelWins = duelsNow.filter(d => d.status === 'done' && d.winner && !seenDuels.has(d.id));
+    duelsNow.forEach(d => { if (d.status === 'done') seenDuels.add(d.id); });
     stage.update({
       ids: [...ids].filter(id => people.has(id)),
-      fights: live.map(x => ({ title: x.t.name, sides: x.s.players.filter(Boolean).map(id => expand(x.t, id)) })),
-      winners: fresh.flatMap(x => expand(x.t, x.s.winner)).filter(Boolean),
+      fights: [...live.map(x => ({ title: x.t.name, sides: x.s.players.filter(Boolean).map(id => expand(x.t, id)) })),
+        ...duelsNow.filter(d => d.status !== 'done').map(d => ({ title: `Défi${d.game ? ' · ' + d.game : ''}`, sides: [[d.challenger], [d.opponent]] }))],
+      winners: [...fresh.flatMap(x => expand(x.t, x.s.winner)), ...(prevDone ? duelWins.map(d => d.winner) : [])].filter(Boolean),
     });
     prevDone = doneNow;
     const start = c.starts_at ? new Date(c.starts_at) : null;
@@ -2334,7 +2340,6 @@ function partyStage(getP) {
     const want = new Set([...ids.slice(0, 40), ...f.flatMap(x => x.sides.flat())].filter(id => getP(id)));
     for (const id of want) if (!W.has(id)) add(id);
     for (const [id, w] of W) if (!want.has(id)) { w.el.remove(); W.delete(id); }
-    $('#ps-count', el).textContent = `${want.size} inscrit${want.size > 1 ? 's' : ''}${f.length ? ` · ⚔️ ${f.length} match${f.length > 1 ? 's' : ''} en cours` : ''}`;
     el.hidden = !want.size;
     // arènes : une par match en cours, autant que la largeur le permet ; un joueur n'est que dans une arène à la fois
     const maxA = Math.max(1, Math.floor(size.w / 130));
@@ -2348,7 +2353,9 @@ function partyStage(getP) {
       fights.push({ ...x, sides });
     }
     const n = fights.length;
-    arenas.innerHTML = fights.map((x, k) => `<div class="arena" style="left:${((k + .5) / n) * 100}%"><span class="arena-ring"></span><span class="arena-vs">⚔️</span><small>${esc(x.title)}</small></div>`).join('');
+    $('#ps-count', el).textContent = `${want.size} inscrit${want.size > 1 ? 's' : ''}${n ? ` · ⚔️ ${n} bagarre${n > 1 ? 's' : ''} en cours` : ''}`;
+    arenas.innerHTML = fights.map((x, k) => `<div class="arena" style="left:${((k + .5) / n) * 100}%"><span class="arena-ring"></span>
+      <span class="brawl"><i></i><i></i><i></i><i></i><i></i><b>💥</b><b>⭐</b><b>👊</b><b>💫</b></span><small>${x.sides.map(team => team.map(id => esc(getP(id)?.username || '?')).join(' & ')).join(' ⚔️ ')}<em>${esc(x.title)}</em></small></div>`).join('');
     const fighting = new Map();
     fights.forEach((x, k) => {
       const sides = x.sides;
@@ -2377,18 +2384,20 @@ function partyStage(getP) {
       for (const w of W.values()) {
         if (w.cheerUntil && t > w.cheerUntil) { w.el.classList.remove('cheer'); w.cheerUntil = 0; }
         if (w.mode === 'fight' && w.fz) {
-          const z = w.fz, r = Math.max(24, Math.min(46, size.w / z.n / 2 - 22));
-          w.tx = z.cf * size.w + z.ax * r; w.ty = size.h * .55 + 14 + z.ay * r * .45 + z.mi * 22;
+          // la bagarre : les joueurs tournent l'un autour de l'autre dans le nuage, en se rentrant dedans
+          const z = w.fz, s = t / 1000, ph = Math.atan2(z.ay, z.ax) + s * 3.2 + z.mi;
+          const r = 14 + 9 * Math.sin(s * 7 + z.mi * 2);
+          w.tx = z.cf * size.w + Math.cos(ph) * r * 1.4; w.ty = size.h * .55 + 18 + Math.sin(ph) * r * .55;
         }
         const dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
         let moving = false;
         if (dist > 2) {
-          const sp = (w.mode === 'fight' ? 140 : w.speed) * dt;
+          const sp = (w.mode === 'fight' ? 260 : w.speed) * dt;
           w.x += dx / dist * Math.min(sp, dist); w.y += dy / dist * Math.min(sp, dist);
           if (Math.abs(dx) > 1) w.dir = dx > 0 ? 1 : -1;
           moving = true;
         } else if (w.mode === 'fight') {
-          w.dir = w.face;
+          w.dir = Math.sin(t / 180 + w.fz.mi) > 0 ? 1 : -1;
         } else if ((w.wait -= dt) <= 0) {
           const s = spot(); w.tx = s.x; w.ty = s.y; w.wait = rnd(1.5, 5);
         }

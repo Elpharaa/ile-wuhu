@@ -1641,3 +1641,37 @@ footer a.foot-discord:hover { transform: translateY(-2px); box-shadow: 0 10px 24
 .foot-discord b { font-size: .95rem; font-weight: 800; }
 .foot-discord i { font-style: normal; font-weight: 900; opacity: .8; transition: transform .15s ease; }
 .foot-discord:hover i { transform: translateX(3px); }
+
+/* Bagarre façon dessin animé : nuage de poussière + étoiles, les avatars tournent dedans */
+.arena-ring { display: none; }
+.arena-vs { display: none; }
+.brawl { position: absolute; left: 50%; top: 50%; width: 120px; height: 70px; transform: translate(-50%, -38%); pointer-events: none; }
+.brawl i { position: absolute; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: inset -4px -5px 0 rgba(180,190,205,.45); animation: brPuff .5s ease-in-out infinite alternate; }
+.brawl i:nth-child(1) { width: 56px; height: 46px; left: 32px; top: 10px; }
+.brawl i:nth-child(2) { width: 40px; height: 34px; left: 8px; top: 26px; animation-delay: .1s; }
+.brawl i:nth-child(3) { width: 42px; height: 36px; left: 72px; top: 24px; animation-delay: .2s; }
+.brawl i:nth-child(4) { width: 34px; height: 28px; left: 22px; top: 2px; animation-delay: .3s; }
+.brawl i:nth-child(5) { width: 32px; height: 28px; left: 70px; top: 0; animation-delay: .15s; }
+.brawl b { position: absolute; font-size: 1.1rem; animation: brPop 1.2s ease-in-out infinite; z-index: 2; }
+.brawl b:nth-of-type(1) { left: -6px; top: 4px; } .brawl b:nth-of-type(2) { right: -4px; top: -6px; animation-delay: .3s; }
+.brawl b:nth-of-type(3) { left: 48px; top: -18px; animation-delay: .6s; } .brawl b:nth-of-type(4) { right: 6px; bottom: -6px; animation-delay: .9s; }
+@keyframes brPuff { from { transform: scale(.9); } to { transform: scale(1.08); } }
+@keyframes brPop { 0%, 100% { transform: scale(.4) rotate(0); opacity: 0; } 30% { transform: scale(1.2) rotate(-15deg); opacity: 1; } 60% { transform: scale(1) rotate(10deg); opacity: 1; } }
+.walker.fighting .wk-body { animation: wkBrawl .22s ease-in-out infinite alternate; }
+@keyframes wkBrawl { from { transform: scaleX(var(--dir, 1)) rotate(-14deg) translateY(0); } to { transform: scaleX(var(--dir, 1)) rotate(14deg) translateY(-6px); } }
+.walker.fighting .wk-name { opacity: .9; }
+.pstage.calm .brawl i, .pstage.calm .brawl b { animation: none !important; opacity: 1; }
+@media (max-width: 640px) { .brawl { width: 96px; transform: translate(-50%, -38%) scale(.85); } }
+
+.pstage-arenas { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.brawl { width: 140px; height: 74px; transform: translate(-50%, -6%); }
+.brawl i:nth-child(1) { width: 66px; height: 50px; left: 37px; top: 12px; }
+.brawl i:nth-child(2) { width: 48px; height: 38px; left: 6px; top: 28px; }
+.brawl i:nth-child(3) { width: 50px; height: 40px; left: 86px; top: 26px; }
+.brawl i:nth-child(4) { width: 40px; height: 32px; left: 22px; top: 6px; }
+.brawl i:nth-child(5) { width: 38px; height: 32px; left: 80px; top: 4px; }
+.walker.fighting .wk-name { display: none; }
+.arena small { top: -78px; display: flex; flex-direction: column; align-items: center; line-height: 1.15; padding: 3px 10px; border-radius: 12px; background: rgba(20,24,48,.6); }
+.arena small em { font-style: normal; font-weight: 700; font-size: .62rem; opacity: .85; }
+.brawl { transform: translate(-50%, -48%); }
+@media (max-width: 640px) { .brawl { transform: translate(-50%, -48%) scale(.85); } }
