@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119h';
+import { api, DEMO } from './api.js?v=20261119i';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119h';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119i';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -355,6 +355,7 @@ async function route() {
     case 'classement': return pageLeaderboard();
     case 'boutique': return pageShop();
     case 'succes': return pageAchievements();
+    case 'bienvenue': showWelcome(null); location.hash = '#/'; return;
     case 'defis': return pageDuels();
     case 'pantheon': return pagePantheon();
     case 'quiz': return pageQuiz();
@@ -1771,8 +1772,13 @@ async function pageLeaderboard() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   const [members] = await Promise.all([safe(() => api.listMembers()), loadBalances()]);
   const list = (members || []).map(m => ({ ...m, ...bal(m.id) }));
-  const by = { points: 'points', rubis: 'rubis' };
+  const by = { points: 'points', rubis: 'rubis', season: 'season' };
+  const [board, past] = await Promise.all([safe(() => api.seasonBoard?.()), safe(() => api.seasons?.())]);
+  const sPts = new Map((board || []).map(r => [r.user_id, r.points]));
+  const people = new Map(list.map(m => [m.id, m]));
   const draw = key => {
+    if (key === 'season') return drawSeason();
+
     const sorted = [...list].sort((a, b) => b[key] - a[key] || a.username.localeCompare(b.username));
     const podium = sorted.slice(0, 3);
     $('#lb').className = 'by-' + key;
@@ -1796,14 +1802,42 @@ async function pageLeaderboard() {
           </a>`).join('') || (sorted.length ? '' : '<p class="empty">Personne pour l\'instant.</p>')}
       </div>`;
   };
+  // Saison du mois : seuls les points gagnés ce mois-ci comptent ; le top 3 gagne un titre exclusif
+  const drawSeason = () => {
+    const now = new Date(), name = now.toLocaleDateString('fr-FR', { month: 'long', timeZone: 'Europe/Paris' });
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1), days = Math.max(0, Math.ceil((end - now) / 864e5));
+    const rows = list.filter(m => sPts.get(m.id) > 0).map(m => ({ ...m, sp: sPts.get(m.id) })).sort((a, b) => b.sp - a.sp);
+    const myRank = rows.findIndex(m => m.id === state.me.id);
+    const short = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'][Number(new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' }).slice(5, 7)) - 1];
+    const prizes = [['👑', 'Champion', 'or', '+100'], ['🥈', 'Vice-champion', 'galaxie', '+60'], ['🥉', 'Podium', 'feu', '+30']];
+    const last = (past || [])[0];
+    $('#lb').className = 'by-season';
+    $('#lb').innerHTML = `
+      <div class="season-hero">
+        <div><small>Saison en cours</small><h2>🗓️ Saison de ${esc(name)}</h2>
+          <p>Seuls les ${I.points} points gagnés <b>ce mois-ci</b> comptent. Tout le monde repart de zéro le 1<sup>er</sup> du mois !</p></div>
+        <div class="season-end"><b>${days}</b><small>jour${days > 1 ? 's' : ''} restant${days > 1 ? 's' : ''}</small></div>
+      </div>
+      <div class="season-prizes">${prizes.map(([ic, t, fx, r], i) => `<div class="sp-card r${i + 1}"><span class="sp-ic">${ic}</span>
+        <span class="sp-t uname fx fx-${fx}" data-t="${t} · ${short}">${t} · ${short}</span><small>Titre exclusif + ${r} ${I.rubis}</small></div>`).join('')}</div>
+      ${myRank >= 0 ? `<p class="season-me">Tu es <b>${myRank + 1}<sup>${myRank ? 'e' : 'er'}</sup></b> avec ${pts(rows[myRank].sp)} ce mois-ci${myRank > 2 ? ` · encore ${rows[2].sp - rows[myRank].sp + 1} ${I.points} pour le podium !` : ' : accroche-toi ! 🔥'}</p>`
+        : '<p class="season-me">Tu n\'as pas encore de points ce mois-ci : joue un tournoi, un défi ou un Quiz Battle pour entrer dans la course ! ⚔️</p>'}
+      <div class="lb-table">${rows.map((m, i) => `
+        <a href="#/profil/${esc(m.id)}" class="lb-row ${m.id === state.me.id ? 'me-row' : ''} ${i < 3 ? 'top' : ''}">
+          <span class="lb-rank">${[I.medal1, I.medal2, I.medal3][i] || i + 1}</span>${avatar(m, 'av sm')}
+          <span class="lb-name">${uname(m)}</span>${pts(m.sp)}
+        </a>`).join('') || '<p class="empty">Personne n\'a encore marqué de points ce mois-ci. À toi de jouer !</p>'}</div>
+      ${last?.ranking?.length ? `<div class="season-past"><h3>🏆 Champions de ${esc(new Date(last.month + 'T12:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }))}</h3>
+        <div class="sp-past">${last.ranking.map(r => { const m = people.get(r.user_id); return m ? `<a href="#/profil/${esc(m.id)}">${[I.medal1, I.medal2, I.medal3][r.rank - 1]} ${avatar(m, 'av sm')} <b>${uname(m)}</b> <small>${r.points} pts</small></a>` : ''; }).join('')}</div></div>` : ''}`;
+  };
   app.innerHTML = `
     <div class="page-head"><h1>Classement</h1>
-      <div class="seg"><button class="on" data-k="points">${I.points} Points</button><button data-k="rubis">${I.rubis} Rubis</button></div>
+      <div class="seg"><button class="on" data-k="season">🗓️ Saison</button><button data-k="points">${I.points} Points</button><button data-k="rubis">${I.rubis} Rubis</button></div>
     </div>
     <p class="small">On gagne des points et des rubis en participant aux tournois, en gagnant des matchs et grâce aux events des admins.</p>
     <a href="#/pantheon" class="pantheon-link">🏛️ <span><b>Panthéon de Wuhu</b><small>Les champions de chaque compétition</small></span> →</a>
     <div id="lb"></div>`;
-  draw('points');
+  draw('season');
   app.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
@@ -2602,6 +2636,41 @@ function burst(el) {
   }
 }
 
+// ---------- Bienvenue sur l'île (première visite) ----------
+// L'avatar du nouveau membre descend en parachute sur l'île, puis on lui offre son cadeau et on lui montre l'essentiel.
+function showWelcome(gift) {
+  document.querySelector('.welcome')?.remove();
+  const me = state.me; if (!me) return;
+  const el = document.createElement('div');
+  el.className = 'welcome';
+  el.innerHTML = `
+    <div class="wl-sky">
+      <span class="wl-cloud c1"></span><span class="wl-cloud c2"></span><span class="wl-cloud c3"></span>
+      <div class="wl-island"><span class="wl-palm">🌴</span><span class="wl-palm p2">🌴</span></div>
+      <div class="wl-drop"><span class="wl-chute">🪂</span><span class="wl-me">${avatar(me, 'av')}</span></div>
+    </div>
+    <div class="wl-card">
+      <h2>Bienvenue sur l'île Wuhu, ${esc(me.username)} ! 🏝️</h2>
+      <p class="muted">Tu viens d'atterrir sur l'île. Voici de quoi bien commencer :</p>
+      ${gift ? `<div class="wl-gifts"><div class="wl-gift">${I.rubis}<b>+${gift.rubis}</b><small>rubis offerts</small></div>
+        ${gift.title ? `<div class="wl-gift"><span class="uname fx fx-vague" data-t="${esc(gift.title)}">${esc(gift.title)}</span><small>ton premier titre (à équiper sur ton profil)</small></div>` : ''}</div>` : ''}
+      <div class="wl-tips">
+        <a href="#/tournois" data-go>🏆<b>Tournois</b><small>Inscris-toi aux compétitions</small></a>
+        <a href="#/membres" data-go>⚔️<b>Défis</b><small>Défie n'importe quel membre</small></a>
+        <a href="#/quiz" data-go>🧠<b>Quiz</b><small>Une question par jour</small></a>
+        <a href="#/boutique" data-go>🎁<b>Boutique</b><small>Dépense tes 💎</small></a>
+      </div>
+      <p class="small">🏅 Ton premier succès <b>« Bienvenue sur l'île »</b> t'attend dans <a href="#/succes" data-go>Mes succès</a> !</p>
+      <button class="btn primary wl-go">Explorer l'île →</button>
+    </div>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('on'));
+  setTimeout(() => confetti(90), 1500);
+  const close = () => { el.classList.remove('on'); setTimeout(() => el.remove(), 350); };
+  $('.wl-go', el).addEventListener('click', close);
+  el.querySelectorAll('[data-go]').forEach(a => a.addEventListener('click', close));
+}
+
 // ---------- Défis amicaux (site + /defi sur Discord) ----------
 const DUEL_GAMES = ['Mario Kart 8 Deluxe', 'Super Smash Bros. Ultimate', 'Splatoon 3', 'Mario Party Jamboree', 'Wii Sports', 'Wii Sports Resort', 'Tetris 99', 'Nintendo Switch Sports', 'Ping-pong (en vrai)', 'Échecs (en vrai)'];
 const DUEL_RULES = `<div class="duel-rules">
@@ -3122,4 +3191,9 @@ async function pageSettings(tab = 'fond') {
   if (state.me?.is_admin) settlePending();
   window.addEventListener('hashchange', route);
   route();
+  // Première visite : cadeau et animation de bienvenue
+  if (state.me?.in_guild && api.welcome) {
+    const w = await safe(() => api.welcome());
+    if (w?.new) { await loadBalances(); renderNav(); showWelcome(w); }
+  }
 })();

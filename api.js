@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119h';
+import { resolveBracket } from './bracket.js?v=20261119i';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -155,6 +155,10 @@ async function supabaseApi() {
 
     // ----- Rubis, points, couleurs -----
     balances: async () => ok(await sb.from('wuhu_balances').select('*')),
+    // Accueil des nouveaux (cadeau donné une seule fois) et saisons mensuelles
+    welcome: async () => ok(await sb.rpc('wuhu_welcome')),
+    seasonBoard: async month => ok(await sb.rpc('wuhu_season_board', month ? { p_month: month } : {})),
+    seasons: async () => ok(await sb.from('wuhu_seasons').select('*').order('month', { ascending: false }).limit(12)),
     ledger: async (uid, limit = 30) =>
       ok(await sb.from('wuhu_ledger').select('*').eq('user_id', uid).order('created_at', { ascending: false }).limit(limit)),
     addLedger: async rows => ok(await sb.from('wuhu_ledger').insert(rows)),
@@ -392,6 +396,9 @@ function demoApi() {
       return { correct: ok2, answer: q.key.answer, explanation: q.key.explanation || null, reward: ok2 ? q.reward : 0, total: 7, good: 4 };
     },
     async quizResult(qid) { const q = quiz.find(x => x.id === qid); return { answer: q.key.answer, explanation: q.key.explanation || null, total: 7, good: 4 }; },
+    async welcome() { return /bienvenue-demo/.test(location.hash) ? { new: true, rubis: 50, title: 'Petit nouveau' } : { new: false }; },
+    async seasonBoard() { return [{ user_id: 'u2', points: 145 }, { user_id: 'u0', points: 120 }, { user_id: 'u4', points: 95 }, { user_id: 'u1', points: 60 }, { user_id: 'u5', points: 25 }]; },
+    async seasons() { return [{ month: '2026-10-01', ranking: [{ user_id: 'u1', points: 210, rank: 1, rubis: 100 }, { user_id: 'u2', points: 180, rank: 2, rubis: 60 }, { user_id: 'u3', points: 90, rank: 3, rubis: 30 }] }]; },
     async quizBoard() { return [{ user_id: 'u2', good: 12, played: 14 }, { user_id: 'u1', good: 10, played: 15 }, { user_id: 'u0', good: 7, played: 9 }, { user_id: 'u5', good: 3, played: 8 }]; },
     async quizList() { return clone(quiz); },
     async quizSave(q) {

@@ -1483,3 +1483,53 @@ body.with-dock footer { margin-bottom: 96px; }
 .quiz-card.folded #quiz-body { display: none; }
 .quiz-card.folded .quiz-head { margin-bottom: 4px; }
 .quiz-card .quiz-img { max-height: 170px; }
+/* ---------- Bienvenue sur l'île ---------- */
+.welcome { position: fixed; inset: 0; z-index: 3000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto;
+  background: rgba(10,30,60,.55); backdrop-filter: blur(4px); opacity: 0; transition: opacity .35s; padding: 16px; }
+.welcome.on { opacity: 1; }
+.wl-sky { position: relative; width: min(560px, 100%); height: 240px; flex-shrink: 0; border-radius: 26px 26px 0 0; overflow: hidden;
+  background: linear-gradient(#7fd3ff, #c7ecff 70%, #2b9fe0 70.5%, #1d86cc); }
+.wl-cloud { position: absolute; width: 90px; height: 28px; border-radius: 30px; background: #fff; opacity: .9; animation: wlCloud 18s linear infinite; }
+.wl-cloud::before { content: ''; position: absolute; width: 44px; height: 40px; border-radius: 50%; background: #fff; left: 18px; top: -18px; }
+.wl-cloud.c1 { top: 30px; left: -100px; } .wl-cloud.c2 { top: 70px; left: -100px; animation-delay: -7s; transform: scale(.7); } .wl-cloud.c3 { top: 18px; left: -100px; animation-delay: -12s; transform: scale(.85); }
+@keyframes wlCloud { to { translate: 760px 0; } }
+.wl-island { position: absolute; left: 50%; bottom: 34px; width: 300px; height: 70px; transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 40%, #8fdc6e 0 55%, #f3dc9a 56% 100%); box-shadow: 0 8px 0 rgba(0,0,0,.08); }
+.wl-palm { position: absolute; left: 30px; bottom: 30px; font-size: 2.6rem; } .wl-palm.p2 { left: auto; right: 34px; font-size: 2.1rem; }
+.wl-drop { position: absolute; left: 50%; top: 0; transform: translate(-50%, -140%); animation: wlDrop 1.6s cubic-bezier(.3,.7,.4,1) .3s forwards; display: flex; flex-direction: column; align-items: center; }
+.wl-chute { font-size: 3rem; line-height: 1; margin-bottom: -10px; animation: wlChute 1.6s ease-in .3s forwards; }
+.wl-me .av { width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; box-shadow: 0 6px 14px rgba(0,0,0,.25); object-fit: cover; display: block; }
+@keyframes wlDrop { 0% { transform: translate(-50%, -140%) rotate(-8deg); } 55% { transform: translate(-50%, 70px) rotate(6deg); } 75% { transform: translate(-50%, 92px) rotate(-3deg); }
+  88% { transform: translate(-50%, 80px); } 100% { transform: translate(-50%, 88px); } }
+@keyframes wlChute { 0%, 70% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-30px) scale(.6); } }
+.wl-card { width: min(560px, 100%); background: #fff; color: #1d2b3a; border-radius: 0 0 26px 26px; padding: 18px 20px 22px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,.3);
+  animation: wlUp .5s ease-out 1.2s both; }
+@keyframes wlUp { from { opacity: 0; transform: translateY(14px); } }
+.wl-card h2 { margin: 0 0 4px; }
+.wl-gifts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 14px 0; }
+.wl-gift { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 140px; padding: 12px 14px; border-radius: 18px; background: linear-gradient(135deg, #fff5d6, #ffe3f0);
+  font-size: 1.1rem; animation: wlPop .5s cubic-bezier(.3,1.6,.5,1) both; }
+.wl-gift:nth-child(1) { animation-delay: 1.7s; } .wl-gift:nth-child(2) { animation-delay: 1.95s; }
+.wl-gift b { font-size: 1.6rem; } .wl-gift small { color: #6b7a8a; font-size: .75rem; }
+@keyframes wlPop { from { opacity: 0; transform: scale(.4); } }
+.wl-tips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.wl-tips a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; border-radius: 14px; background: var(--sky2, #eaf6ff); text-decoration: none; color: inherit; font-size: 1.4rem; }
+.wl-tips b { font-size: .85rem; } .wl-tips small { font-size: .68rem; color: #6b7a8a; line-height: 1.2; }
+.wl-go { margin-top: 8px; font-size: 1.05rem; padding: 12px 26px; }
+@media (max-width: 520px) { .wl-tips { grid-template-columns: repeat(2, 1fr); } .wl-sky { height: 200px; } }
+@media (prefers-reduced-motion: reduce) { .wl-drop { animation: none; transform: translate(-50%, 88px); } .wl-chute { display: none; } .wl-cloud, .wl-card, .wl-gift { animation: none; } }
+
+/* ---------- Saison du mois ---------- */
+.season-hero { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 20px; color: #fff; margin-bottom: 12px;
+  background: linear-gradient(120deg, #3b6ff0, #7a2fd1); }
+.season-hero h2 { margin: 2px 0 6px; color: #fff; } .season-hero p { margin: 0; opacity: .92; font-size: .9rem; } .season-hero small { opacity: .8; font-weight: 700; text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; }
+.season-end { flex-shrink: 0; text-align: center; background: rgba(255,255,255,.18); border-radius: 16px; padding: 8px 14px; }
+.season-end b { display: block; font-size: 1.8rem; line-height: 1; } .season-end small { text-transform: none; letter-spacing: 0; }
+.season-prizes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.sp-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 16px; background: #fff; box-shadow: var(--shadow); text-align: center; }
+.sp-card.r1 { border: 2px solid #ffd23f; } .sp-ic { font-size: 1.6rem; } .sp-t { font-weight: 800; font-size: .9rem; } .sp-card small { color: #6b7a8a; font-size: .72rem; }
+.season-me { padding: 10px 14px; border-radius: 14px; background: #fff8dc; margin: 0 0 12px; }
+.lb-row.top { background: linear-gradient(90deg, rgba(255,210,63,.18), transparent); }
+.season-past { margin-top: 18px; } .sp-past { display: flex; flex-wrap: wrap; gap: 8px; }
+.sp-past a { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fff; box-shadow: var(--shadow); text-decoration: none; color: inherit; }
+@media (max-width: 520px) { .season-prizes { grid-template-columns: 1fr; } .sp-card { flex-direction: row; justify-content: flex-start; padding: 8px 12px; } }
