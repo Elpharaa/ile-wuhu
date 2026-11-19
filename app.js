@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119r';
+import { api, DEMO } from './api.js?v=20261120a';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119r';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120a';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -364,7 +364,7 @@ async function route() {
     case 'quiz': return pageQuiz();
     case 'blindtest': return parts[1] === 'salon' ? pageBtRoom(parts[2]) : pageBlindtest();
     case 'soiree': return pageParty(parts[1]);
-    case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
+    case 'parametres': return state.me.is_admin ? pageSettings(parts[1] || 'fond') : pageHome();
     default: return pageHome();
   }
 }
@@ -1824,7 +1824,7 @@ async function pageLeaderboard() {
         <div class="season-end"><b>${days}</b><small>jour${days > 1 ? 's' : ''} restant${days > 1 ? 's' : ''}</small></div>
       </div>
       <div class="season-prizes">${prizes.map(([ic, t, fx, r], i) => `<div class="sp-card r${i + 1}"><span class="sp-ic">${ic}</span>
-        <span class="sp-t uname fx fx-${fx}" data-t="${t} · ${short}">${t} · ${short}</span><small>Titre exclusif + ${r} ${I.rubis}</small></div>`).join('')}</div>
+        <span class="sp-t">${t}<em>${short}</em></span><small>Titre exclusif · ${r} ${I.rubis}</small></div>`).join('')}</div>
       ${myRank >= 0 ? `<p class="season-me">Tu es <b>${myRank + 1}<sup>${myRank ? 'e' : 'er'}</sup></b> avec ${pts(rows[myRank].sp)} ce mois-ci${myRank > 2 ? ` · encore ${rows[2].sp - rows[myRank].sp + 1} ${I.points} pour le podium !` : ' : accroche-toi ! 🔥'}</p>`
         : '<p class="season-me">Tu n\'as pas encore de points ce mois-ci : joue un tournoi, un défi ou un Quiz Battle pour entrer dans la course ! ⚔️</p>'}
       <div class="lb-table">${rows.map((m, i) => `
@@ -1961,10 +1961,9 @@ async function pageQuiz() {
           <span class="lb-name">${uname(people.get(r.user_id))}</span><b>${r.good} ✓</b><small class="muted">/ ${r.played}</small>
         </a>`).join('') || '<p class="empty">Personne n\'a encore joué ce mois-ci.</p>'}</div>
     </section>
-    ${me.is_admin ? '<section id="quiz-admin"></section>' : ''}`;
+    ${me.is_admin ? '<p class="small muted admin-hint">⚙️ Pour gérer les questions : <a href="#/parametres/quiz">Paramètres → Quiz</a></p>' : ''}`;
   await drawQuiz('#quiz-page-slot');
   if (!$('#quiz-page-slot').innerHTML) $('#quiz-page-slot').innerHTML = '<p class="empty">Pas de question aujourd\'hui. Reviens demain !</p>';
-  if (me.is_admin) drawQuizAdmin();
 }
 async function drawQuizAdmin() {
   const box = $('#quiz-admin'); if (!box) return;
@@ -2727,10 +2726,9 @@ async function pageBlindtest() {
     <p class="small">Écoute l'extrait, trouve de quel jeu vient la musique ! Les extraits sont lus depuis YouTube : monte le son 🔊</p>
     <section class="card bt-card" id="bt-day"></section>
     <section class="card bt-card bt-multi-card" id="bt-multi">${btMultiCard()}</section>
-    ${state.me.is_admin ? '<section id="bt-admin"></section>' : ''}`;
+    ${state.me.is_admin ? '<p class="small muted admin-hint">⚙️ Pour gérer les musiques : <a href="#/parametres/blindtest">Paramètres → Blind test</a></p>' : ''}`;
   await drawBtDay(today);
   bindBtMulti($('#bt-multi'));
-  if (state.me.is_admin) drawBtAdmin();
 }
 async function drawBtDay(t) {
   const box = $('#bt-day'); if (!box) return;
@@ -3488,6 +3486,8 @@ async function pageSettings(tab = 'fond') {
       <button data-tab="fond">Fond d'écran</button>
       <button data-tab="icones">Icônes</button>
       <button data-tab="galerie">Mes images</button>
+      <button data-tab="quiz">🧠 Quiz</button>
+      <button data-tab="blindtest">🎵 Blind test</button>
     </div>
     <div id="set-body"></div>`;
   const body = $('#set-body');
@@ -3607,7 +3607,10 @@ async function pageSettings(tab = 'fond') {
 
   const show = k => {
     app.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
-    ({ fond: showBg, icones: showIcons, galerie: showGallery })[k]();
+    ({ fond: showBg, icones: showIcons, galerie: showGallery,
+       quiz: () => { body.innerHTML = '<section id="quiz-admin"></section>'; drawQuizAdmin(); },
+       blindtest: () => { body.innerHTML = '<section id="bt-admin"></section>'; drawBtAdmin(); } })[k]?.();
+    history.replaceState(null, '', '#/parametres/' + k);
   };
   app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
   show(tab);
