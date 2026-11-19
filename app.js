@@ -141,6 +141,12 @@ function computeRewards(t, bracket) {
   players.forEach(u => add(u, R.participation, 'Participation'));
   const wins = new Map();
   Object.values(st).forEach(x => { if (x.playable && x.done) wins.set(x.winner, (wins.get(x.winner) || 0) + 1); });
+  if (bracket.format === 'ffa4') {
+    wins.forEach((n, u) => add(u, { points: R.win.points * n, rubis: R.win.rubis * n }, `${n} match${n > 1 ? 's' : ''} gagné${n > 1 ? 's' : ''}`));
+    const fin = st[bracket.matches[bracket.matches.length - 1].id].ranking || [];
+    add(fin[0], R.first, '🏆 Champion'); add(fin[1], R.second, '🥈 2e place'); add(fin[2], R.third, '🥉 3e place');
+    return rows;
+  }
   wins.forEach((n, u) => add(u, { points: R.win.points * n, rubis: R.win.rubis * n }, `${n} match${n > 1 ? 's' : ''} gagné${n > 1 ? 's' : ''}`));
   let second = null, thirds = [];
   if (bracket.format === 'double') {
@@ -178,7 +184,8 @@ async function settlePending() {
   renderNav();
 }
 
-const FORMAT = { single: 'Élimination directe', double: 'Double élimination' };
+const FORMAT = { single: 'Élimination directe', double: 'Double élimination', ffa4: 'Chacun pour soi à 4' };
+const PLACE = ['1er', '2e', '3e', '4e'];
 const STATUS = { open: 'Inscriptions ouvertes', running: 'En cours', done: 'Terminé' };
 // Un tournoi rangé dans une compétition ne prend pas d'inscriptions lui-même : on s'inscrit via la compétition
 const tStatus = t => t.competition_id && t.status === 'open' ? 'wait' : t.status;
@@ -461,7 +468,7 @@ function allMatches(tours) {
     const res = resolveBracket(t.bracket);
     t.bracket.matches.forEach((m, order) => {
       const s = res.state[m.id];
-      if (!s.playable || !s.players[0] || !s.players[1]) return;
+      if (!s.playable || s.players.filter(Boolean).length < 2) return;
       out.push({ t, m, s, order, title: roundTitle(t.bracket, m.b, m.r) });
     });
   }
@@ -485,6 +492,10 @@ const winnerFields = (bracket, champ) => bracket?.teams ? { winner_id: null, win
 const winnersOf = t => t.winner_id ? [t.winner_id] : t.winner_team ? (teamOf(t, t.winner_team)?.members || []) : [];
 function matchesOf(tours, uid) {
   return allMatches(tours).filter(x => sideOf(x.t, x.s, uid) >= 0).map(x => {
+    if (x.s.players.length === 4) {
+      const k = x.s.ranking ? x.s.ranking.indexOf(uid) : -1;
+      return { ...x, opp: null, ffa: true, team: true, place: k, done: x.s.done, won: x.s.done && k === 0, mine: null, theirs: null };
+    }
     const i = sideOf(x.t, x.s, uid);
     const sc = x.s.result?.s;
     const opp = x.s.players[1 - i], oppTeam = teamOf(x.t, opp);
@@ -493,7 +504,7 @@ function matchesOf(tours, uid) {
       mine: sc ? sc[i] : null, theirs: sc ? sc[1 - i] : null };
   });
 }
-const oppOf = (x, people) => x.oppTeam ? teamPerson(x.oppTeam.id, x.oppTeam, m => people.get(m)) : people.get(x.opp) || { username: '?' };
+const oppOf = (x, people) => x.ffa ? { username: `Match à ${x.s.players.filter(Boolean).length} · ${x.done ? PLACE[x.place] : 'à jouer'}` } : x.oppTeam ? teamPerson(x.oppTeam.id, x.oppTeam, m => people.get(m)) : people.get(x.opp) || { username: '?' };
 function headToHead(list) {
   const map = new Map();
   for (const x of list) {
@@ -755,6 +766,7 @@ async function tournamentForm(t = null, presetComp = null) {
           <select name="format" ${t?.status === 'running' || t?.status === 'done' ? 'disabled' : ''}>
             <option value="single" ${t?.format !== 'double' ? 'selected' : ''}>Élimination directe</option>
             <option value="double" ${t?.format === 'double' ? 'selected' : ''}>Double élimination</option>
+            <option value="ffa4" ${t?.format === 'ffa4' ? 'selected' : ''}>Chacun pour soi à 4 (1 vs 1 vs 1 vs 1)</option>
           </select>
         </label>
         <label>Places max<input name="max_players" type="number" min="2" max="128" value="${esc(t?.max_players)}" placeholder="Illimité"></label>
@@ -798,6 +810,7 @@ async function tournamentForm(t = null, presetComp = null) {
     };
     if (f.get('format')) data.format = f.get('format');
     if (f.get('team_size')) data.team_size = Number(f.get('team_size'));
+    if (data.format === 'ffa4') data.team_size = 1;  // à 4, chacun joue pour soi
     data.competition_id = f.get('competition_id') || null;
     data.rewards = {};
     for (const k of Object.keys(DEFAULT_REWARDS)) {
@@ -1001,7 +1014,7 @@ async function pageTournament(id) {
   const comp = t.competition_id ? await safe(() => api.getCompetition(t.competition_id)) : null;
   // Matchs que je peux renseigner : tous pour un admin, seulement le mien (pas encore joué) pour un joueur
   const ids = duo ? teams.map(x => x.id) : [...people.keys()];
-  const placement = t.status === 'open' && ids.length >= 2 ? syncPlacement(t.seeding, ids) : null;
+  const placement = t.status === 'open' && ids.length >= 2 ? syncPlacement(t.seeding, ids, t.format) : null;
   const preview = placement ? bracketFromPlacement(placement, t.format) : null;
   const canReport = s => s.playable && (me.is_admin || (t.status === 'running' && !s.done && sideOf(t, s, me.id) >= 0));
   const myMatch = res ? Object.values(res.state).find(s => !me.is_admin && canReport(s)) : null;
@@ -1128,8 +1141,8 @@ async function pageTournament(id) {
 
   // ----- Aperçu (avant lancement) : échanger, mélanger -----
   const savePlacement = pl => safe(async () => { await api.updateTournament(t.id, { seeding: pl }); reload(); });
-  $('#shuffle')?.addEventListener('click', () => savePlacement(placementFor(shuffled(ids))));
-  $('#reset-order')?.addEventListener('click', () => savePlacement(placementFor(ids)));
+  $('#shuffle')?.addEventListener('click', () => savePlacement(placementFor(shuffled(ids), t.format)));
+  $('#reset-order')?.addEventListener('click', () => savePlacement(placementFor(ids, t.format)));
   if (me.is_admin && preview) wireSwap($('#preview-bracket'), (a, b) => {
     const pl = [...placement]; [pl[a], pl[b]] = [pl[b], pl[a]]; savePlacement(pl);
   });
@@ -1144,8 +1157,9 @@ async function pageTournament(id) {
       wireSwap(box, (a, b) => safe(async () => {
         const bracket = structuredClone(t.bracket);
         const W1 = bracket.matches.filter(m => m.b === 'W' && m.r === 1);
-        const slotOf = n => W1[Math.floor(n / 2)].slots[n % 2];
-        const touched = new Set([W1[Math.floor(a / 2)].id, W1[Math.floor(b / 2)].id]);
+        const per = W1[0].slots.length;
+        const slotOf = n => W1[Math.floor(n / per)].slots[n % per];
+        const touched = new Set([W1[Math.floor(a / per)].id, W1[Math.floor(b / per)].id]);
         if ([...touched].some(mid => bracket.results?.[mid]) &&
             !confirm('Ces matchs ont déjà un résultat : il sera effacé. Continuer ?')) return;
         const pa = slotOf(a).p ?? null, pb = slotOf(b).p ?? null;
@@ -1198,7 +1212,7 @@ function launchDialog(t, placement, reload, teams = null) {
     <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="go">C'est parti !</button></div>`);
   $('#go', box).addEventListener('click', () => safe(async () => {
     const live = $('#mix', box).checked;
-    const pl = live ? placementFor(shuffled(placement.filter(Boolean))) : placement;
+    const pl = live ? placementFor(shuffled(placement.filter(Boolean)), t.format) : placement;
     const bracket = bracketFromPlacement(pl, t.format);
     if (live) bracket.draw = { at: Date.now() };
     if (teams) bracket.teams = teams;
@@ -1237,7 +1251,8 @@ function wireSwap(root, onSwap) {
     el.addEventListener('click', e => {
       if (!root.classList.contains('swappable')) return;
       e.stopPropagation();
-      const n = Number(el.closest('.match').dataset.mid.split('-')[1]) * 2 + Number(el.dataset.si);
+      const per = el.closest('.match').querySelectorAll('.mslot').length;
+      const n = Number(el.closest('.match').dataset.mid.split('-')[1]) * per + Number(el.dataset.si);
       if (first === null) { first = n; el.classList.add('picked'); return; }
       root.querySelectorAll('.picked').forEach(x => x.classList.remove('picked'));
       const a = first; first = null;
@@ -1253,6 +1268,7 @@ const BOLTS = [
   'M50 0 L42 22 L56 26 L44 54 L58 60 L48 90',
 ];
 function matchSheet(t, s, people, reload, canEdit) {
+  if (s.players.length === 4) return matchSheet4(t, s, people, reload, canEdit);
   const m = (t.bracket.matches || []).find(x => x.id === s.id) || { b: 'W', r: 1 };
   const title = roundTitle(t.bracket, m.b, m.r);
   const who = i => s.players[i] ? people.get(s.players[i]) || { username: '?' } : null;
@@ -1301,6 +1317,74 @@ function matchSheet(t, s, people, reload, canEdit) {
     const r = headToHead(matchesOf(all || [], s.players[0])).get(s.players[1]) || { w: 0, l: 0 };
     el.innerHTML = r.w + r.l ? `<small>Face-à-face</small><b><span class="${r.w >= r.l ? 'hi' : ''}">${r.w}</span> – <span class="${r.l >= r.w ? 'hi' : ''}">${r.l}</span></b><small>${r.w + r.l} match${r.w + r.l > 1 ? 's' : ''}</small>` : '<small>Premier affrontement entre eux !</small>';
   });
+}
+
+// Fiche d'un match à 4 joueurs : les 4 en lice, puis le classement une fois joué
+function matchSheet4(t, s, people, reload, canEdit) {
+  const m = t.bracket.matches.find(x => x.id === s.id) || { b: 'W', r: 1 };
+  const final = m.r === t.bracket.rounds.W;
+  const ids = s.ranking || s.players.filter(Boolean);
+  const by = s.result?.by ? people.get(s.result.by) : null;
+  const card = (id, k) => {
+    const p = people.get(id) || { id, username: '?' };
+    const q = s.ranking && !s.bye ? (k < 2 ? (final ? (k === 0 ? 'champ' : 'q') : 'q') : 'out') : '';
+    return `<div class="f4 ${q}">
+      ${s.ranking && !s.bye ? `<span class="f4-rank">${[I.medal1, I.medal2, I.medal3][k] || PLACE[k]}</span>` : ''}
+      <a href="#/profil/${esc(id)}">${avatar(p, 'av lg')}</a>
+      <div class="ms-name">${uname(p)}</div>
+      ${s.ranking && !s.bye ? `<small>${final ? (k === 0 ? '🏆 Champion' : PLACE[k] + ' place') : k < 2 ? 'Qualifié' : 'Éliminé'}</small>` : ''}
+      ${final && k === 0 && p.item_victory && state.items.get(p.item_victory) ? victoryFx(state.items.get(p.item_victory).effect) : ''}
+    </div>`;
+  };
+  const waiting = s.players.filter(x => !x).length && !s.done && !s.playable;
+  const status = s.bye ? 'Qualifiés d\'office' : s.done ? 'Match terminé' : s.playable ? 'Combat à venir' : 'En attente des joueurs';
+  const box = openModal(`
+    <div class="ms-storm" aria-hidden="true"><i class="ms-flash"></i><i class="ms-rain"></i></div>
+    <button class="ms-close" data-close aria-label="Fermer">✕</button>
+    <div class="ms-head"><span class="ms-round">${esc(roundTitle(t.bracket, m.b, m.r))}</span><span class="ms-tour">${esc(t.name)} · ${final ? 'le 1er gagne le tournoi' : 'les 2 premiers passent'}</span></div>
+    <div class="f4-grid">${ids.map(card).join('')}${waiting ? `<div class="f4 wait"><div class="ms-av empty">?</div><div class="ms-name muted">En attente…</div></div>` : ''}</div>
+    <div class="ms-status ${s.done ? 'done' : s.playable ? 'live' : ''}">${status}</div>
+    ${by ? `<p class="ms-by">Résultat déclaré par ${uname(by)}</p>` : ''}
+    ${s.playable ? '<div class="ms-react" id="ms-react"></div>' : ''}
+    ${canEdit && s.playable ? `<div class="actions center"><button class="btn primary" id="ms-edit">${s.done ? '✏️ Corriger le classement' : '⚡ Renseigner le classement'}</button></div>` : ''}`, 'match-sheet m4-sheet');
+  $('#ms-edit', box)?.addEventListener('click', () => rankDialog(t, s, people, reload, canEdit === 'player'));
+  if (s.playable) drawReactions($('#ms-react', box), t, s.id, people);
+}
+// Classement d'un match à 4 : on touche les joueurs dans l'ordre d'arrivée
+function rankDialog(t, s, people, reload, asPlayer) {
+  const real = s.players.filter(Boolean);
+  let order = [];
+  const box = openModal(`
+    <h2>Classement du match</h2>
+    <p class="small center">Touche les joueurs dans l'ordre d'arrivée : d'abord le 1er, puis le 2e…</p>
+    ${asPlayer ? '<p class="small center">Tout le monde verra ce résultat. En cas d\'erreur, seul un admin pourra le corriger.</p>' : ''}
+    <div class="rank-pick" id="rk"></div>
+    <div class="actions center"><button class="btn ghost" id="rk-reset">Recommencer</button><button class="btn primary" id="rk-ok" disabled>Valider</button></div>`);
+  const draw = () => {
+    $('#rk', box).innerHTML = real.map(id => {
+      const k = order.indexOf(id), p = people.get(id) || { username: '?' };
+      return `<button class="rkp ${k >= 0 ? 'on' : ''}" data-id="${esc(id)}">${k >= 0 ? `<b>${PLACE[k]}</b>` : '<b class="muted">?</b>'}${avatar(p, 'av sm')}<span>${uname(p)}</span></button>`;
+    }).join('');
+    box.querySelectorAll('.rkp').forEach(b => b.addEventListener('click', () => {
+      const id = b.dataset.id;
+      order = order.includes(id) ? order.filter(x => x !== id) : [...order, id];
+      if (order.length === real.length - 1) order.push(real.find(x => !order.includes(x)));
+      draw();
+    }));
+    $('#rk-ok', box).disabled = order.length !== real.length;
+  };
+  draw();
+  $('#rk-reset', box).addEventListener('click', () => { order = []; draw(); });
+  $('#rk-ok', box).addEventListener('click', () => safe(async () => {
+    const r = await api.reportFfa(t.id, s.id, order);
+    closeModal();
+    if (r?.champion && !asPlayer) {
+      const nt = await api.getTournament(t.id);
+      await syncRewards(nt, nt.bracket); renderNav();
+      toast('🏆 Nous avons un champion ! Les récompenses sont distribuées.');
+    } else toast(r?.champion ? '🏆 Tournoi terminé ! Les récompenses arrivent au prochain passage d\'un admin.' : 'Classement enregistré, merci !');
+    reload();
+  }));
 }
 
 function scoreDialog(t, s, people, reload, asPlayer = false) {
@@ -1397,6 +1481,17 @@ function matchCard(s, people, keepGhost) {
     else label = `<span class="name muted">En attente…</span>`;
     return `<div class="mslot ${isW ? 'win' : ''} ${isL ? 'lose' : ''}" data-si="${idx}">${label}<span class="score">${isW && sc === '' ? '✓' : esc(sc)}</span></div>`;
   };
+  if (s.players.length === 4) {
+    // match à 4 : classement affiché à droite, les 2 premiers (qualifiés) en vert
+    const rk = id => s.ranking ? s.ranking.indexOf(id) : -1;
+    const slot4 = idx => {
+      const id = s.players[idx], p = id ? people.get(id) : null, k = rk(id);
+      const label = p ? `${avatar(p, 'av xs')}<span class="name">${uname(p)}</span>`
+        : `<span class="name muted">${s.deadSlot[idx] ? '—' : 'En attente…'}</span>`;
+      return `<div class="mslot ${k >= 0 && k < 2 && !s.bye ? 'win' : ''} ${k >= 2 ? 'lose' : ''} ${!p && s.deadSlot[idx] ? 'empty4' : ''}" data-si="${idx}">${label}<span class="score">${k >= 0 && !s.bye ? PLACE[k] : ''}</span></div>`;
+    };
+    return `<div class="match m4 ${s.playable ? 'playable' : ''} ${s.done ? 'done' : ''} ${s.bye ? 'bye' : ''}" data-mid="${esc(s.id)}">${[0, 1, 2, 3].map(slot4).join('')}</div>`;
+  }
   return `<div class="match ${s.playable ? 'playable' : ''} ${s.done ? 'done' : ''} ${s.bye ? 'bye' : ''}" data-mid="${esc(s.id)}">${slot(0)}${slot(1)}</div>`;
 }
 
@@ -1991,6 +2086,9 @@ async function pageParty(cid) {
     const line = x => {
       const [a, b] = x.s.players, sc = x.s.result?.s;
       const who = id => teamOf(x.t, id) ? teamPerson(id, teamOf(x.t, id), m => people.get(m)) : people.get(id) || { id, username: '?' };
+      if (x.s.players.length === 4) return `<div class="pm ${x.s.done ? 'done' : 'live'}">
+        <span class="pm-t">${esc(x.t.name)} · ${esc(roundTitle(x.t.bracket, x.m.b, x.m.r))}</span>
+        <div class="pm4">${(x.s.ranking || x.s.players.filter(Boolean)).map((id, k) => `<span class="pm-p ${x.s.ranking && k < 2 ? 'win' : ''}">${x.s.ranking ? `<b>${PLACE[k]}</b>` : ''}${avatarImg(who(id), 'av sm')}${uname(who(id))}</span>`).join('')}</div></div>`;
       return `<div class="pm ${x.s.done ? 'done' : 'live'}">
         <span class="pm-t">${esc(x.t.name)} · ${esc(roundTitle(x.t.bracket, x.m.b, x.m.r))}</span>
         <div class="pm-row">

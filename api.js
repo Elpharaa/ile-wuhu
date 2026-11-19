@@ -140,6 +140,7 @@ async function supabaseApi() {
     leaveCompetition: async cid => ok(await sb.rpc('wuhu_leave_competition', { p_comp: cid })),
 
     // ----- Score déclaré par un joueur du match -----
+    reportFfa: async (tid, mid, rank) => ok(await sb.rpc('wuhu_report_ffa', { p_tid: tid, p_mid: mid, p_rank: rank })),
     reportScore: async (tid, mid, winner, s0, s1) =>
       ok(await sb.rpc('wuhu_report_score', { p_tid: tid, p_mid: mid, p_winner: winner, p_s0: s0, p_s1: s1 })),
 
@@ -275,6 +276,8 @@ function demoApi() {
   [['u1', 't8', 60], ['u1', 't9', 20], ['u2', 't9', 60], ['u2', 't8', 10], ['u3', 't8', 25], ['u0', 't9', 30]].forEach(([u, t, n]) => addL(u, 0, n, 'Démo', t));
   db.tournaments.push({ id: 't3', name: 'Mario Kart – Coupe Champignon', game: 'Mario Kart Wii', description: null, format: 'single', team_size: 2, status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-12', competition_id: null });
   ['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't3', user_id: u, joined_at: '2026-11-0' + i }));
+  db.tournaments.push({ id: 't4', name: 'Mario Party – Soirée étoiles', game: 'Mario Party 9', description: 'Chacun pour soi : les 2 premiers de chaque partie passent.', format: 'ffa4', team_size: 1, status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-13', competition_id: null });
+  ['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't4', user_id: u, joined_at: '2026-11-0' + i }));
   teams.push({ id: 'tmA', tournament_id: 't3', name: 'Les Mii Furieux', members: ['u0', 'u1'], created_at: '1' }, { id: 'tmB', tournament_id: 't3', name: 'Équipe Banane', members: ['u2', 'u3'], created_at: '2' }, { id: 'tmC', tournament_id: 't3', name: 'Turbo Champis', members: ['u4', 'u5'], created_at: '3' });
   ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].forEach((u, i) => db.participants.push({ tournament_id: 't1', user_id: u, joined_at: '2026-11-1' + i }));
   ['u0', 'u1', 'u2', 'u3', 'u4', 'u7', 'u8'].forEach((u, i) => db.participants.push({ tournament_id: 't2', user_id: u, joined_at: '2026-11-1' + i }));
@@ -395,6 +398,13 @@ function demoApi() {
       db.participants = db.participants.filter(p => !(p.user_id === me.id && open.has(p.tournament_id)));
     },
     async saveSetting(key, value) { settings[key] = clone(value); },
+    async reportFfa(tid, mid, rank) {
+      const t = db.tournaments.find(x => x.id === tid);
+      t.bracket.results[mid] = { rank, by: me.id };
+      const r = resolveBracket(t.bracket);
+      t.status = r.champion ? 'done' : 'running'; t.winner_id = r.champion ?? null;
+      notify(); return { champion: r.champion ?? null };
+    },
     async reportScore(tid, mid, w, s0, s1) {
       const t = db.tournaments.find(x => x.id === tid);
       t.bracket.results[mid] = { w, s: s0 == null && s1 == null ? null : [s0 || 0, s1 || 0], by: me.id };

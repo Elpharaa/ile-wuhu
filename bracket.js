@@ -22,14 +22,16 @@ export function generateBracket(playerIds, format = 'single') {
 }
 
 // Place les joueurs (dans l'ordre des têtes de série) sur les cases du 1er tour : 1 contre 8, 4 contre 5…
-export function placementFor(playerIds) {
+export function placementFor(playerIds, format) {
+  if (format === 'ffa4') return ffaPlacement(playerIds);
   const size = nextPow2(Math.max(2, playerIds.length));
   return seedOrder(size).map(seed => playerIds[seed - 1] ?? null);
 }
 
 // Garde le placement enregistré (modifié par un admin) en l'adaptant aux inscrits :
 // un joueur parti libère sa case, un nouveau prend une case libre. Si la taille de l'arbre change, on le refait.
-export function syncPlacement(saved, playerIds) {
+export function syncPlacement(saved, playerIds, format) {
+  if (format === 'ffa4') return ffaSync(saved, playerIds);
   const set = new Set(playerIds);
   const size = nextPow2(Math.max(2, playerIds.length));
   if (!Array.isArray(saved) || saved.length !== size) {
@@ -54,6 +56,7 @@ export function shuffled(list) {
 }
 
 export function bracketFromPlacement(placed, format = 'single') {
+  if (format === 'ffa4') return ffaBracket(placed);
   const size = placed.length;
   const k = Math.log2(size);
   const matches = [];
@@ -127,6 +130,7 @@ export function bracketFromPlacement(placed, format = 'single') {
 // Pour chaque match : players [a,b], dead (match inexistant), bye (exempté),
 // winner/loser, done, playable (les 2 joueurs sont connus).
 export function resolveBracket(bracket) {
+  if (bracket.format === 'ffa4') return ffaResolve(bracket);
   const st = {};
   const results = bracket.results || {};
   for (const m of bracket.matches) {
@@ -187,6 +191,10 @@ export function resolveBracket(bracket) {
 }
 
 export function roundTitle(bracket, b, r) {
+  if (bracket.format === 'ffa4') {
+    const left = bracket.rounds.W - r;
+    return left === 0 ? 'Finale' : left === 1 ? 'Demi-finales' : left === 2 ? 'Quarts de finale' : `Tour ${r}`;
+  }
   const R = bracket.rounds;
   if (b === 'GF') return r === 1 ? 'Grande finale' : 'Grande finale – revanche';
   if (b === 'L') return r === R.L ? 'Finale des perdants' : `Perdants – tour ${r}`;
@@ -197,4 +205,80 @@ export function roundTitle(bracket, b, r) {
   if (left === 2) return 'Quarts de finale';
   if (left === 3) return 'Huitièmes de finale';
   return `Tour ${r}`;
+}
+
+// =====================================================================
+//  Chacun pour soi à 4 (1 contre 1 contre 1 contre 1)
+//  Matchs de 4 joueurs, les 2 premiers passent au tour suivant, finale à 4.
+//  Résultat d'un match : results[id] = { rank: [1er, 2e, 3e, 4e], by }
+// =====================================================================
+function ffaHeats(n) { let h = 1; while (h * 4 < n) h *= 2; return h; }
+// Répartit les joueurs dans les matchs du 1er tour, le plus équitablement possible
+export function ffaPlacement(ids) {
+  const h = ffaHeats(Math.max(3, ids.length));
+  const out = Array(h * 4).fill(null);
+  ids.forEach((id, j) => { out[(j % h) * 4 + Math.floor(j / h)] = id; });
+  return out;
+}
+function ffaSync(saved, ids) {
+  const set = new Set(ids);
+  const h = ffaHeats(Math.max(3, ids.length));
+  if (!Array.isArray(saved) || saved.length !== h * 4) return ffaPlacement(ids);
+  const out = saved.map(id => (id && set.has(id) ? id : null));
+  for (const id of ids) {
+    if (out.includes(id)) continue;
+    // va dans le match qui a le moins de joueurs
+    let best = -1, bestN = 9;
+    for (let k = 0; k < h; k++) {
+      const n = out.slice(k * 4, k * 4 + 4).filter(Boolean).length;
+      if (n < bestN && n < 4) { best = k; bestN = n; }
+    }
+    out[best * 4 + out.slice(best * 4, best * 4 + 4).indexOf(null)] = id;
+  }
+  return out;
+}
+function ffaBracket(placed) {
+  const heats = placed.length / 4;
+  const matches = [];
+  let r = 1, count = heats;
+  for (let i = 0; i < count; i++) matches.push({ id: `W1-${i}`, b: 'W', r: 1, i, slots: placed.slice(i * 4, i * 4 + 4).map(p => ({ p })) });
+  while (count > 1) {
+    r++; count /= 2;
+    for (let i = 0; i < count; i++) {
+      const A = `W${r - 1}-${2 * i}`, B = `W${r - 1}-${2 * i + 1}`;
+      matches.push({ id: `W${r}-${i}`, b: 'W', r, i, slots: [{ src: { m: A, t: 1 } }, { src: { m: B, t: 1 } }, { src: { m: A, t: 2 } }, { src: { m: B, t: 2 } }] });
+    }
+  }
+  return { format: 'ffa4', size: placed.length, rounds: { W: r }, matches, results: {} };
+}
+function ffaResolve(bracket) {
+  const st = {}, results = bracket.results || {};
+  for (const m of bracket.matches) {
+    const players = [], deadSlot = [];
+    let waiting = false;
+    m.slots.forEach(sl => {
+      if (sl.src) {
+        const o = st[sl.src.m];
+        if (!o.done && !o.dead) { waiting = true; players.push(null); deadSlot.push(false); return; }
+        const p = o.qual?.[sl.src.t - 1] ?? null;
+        players.push(p); deadSlot.push(!p);
+      } else { players.push(sl.p ?? null); deadSlot.push(!sl.p); }
+    });
+    const real = players.filter(Boolean);
+    const S = { id: m.id, players, deadSlot, winner: null, loser: null, done: false, dead: false, bye: false, playable: false, result: null, ranking: null, qual: null };
+    if (!waiting) {
+      if (!real.length) S.dead = true;
+      else if (real.length <= 2) { S.bye = true; S.done = true; S.qual = real; S.ranking = real; S.winner = real[0]; }
+      else {
+        S.playable = true;
+        const r = results[m.id];
+        if (r?.rank && r.rank.length === real.length && real.every(p => r.rank.includes(p))) {
+          S.result = r; S.ranking = r.rank; S.qual = r.rank.slice(0, 2); S.winner = r.rank[0]; S.done = true;
+        }
+      }
+    }
+    st[m.id] = S;
+  }
+  const last = st[bracket.matches[bracket.matches.length - 1].id];
+  return { state: st, champion: last?.done ? last.ranking[0] : null };
 }

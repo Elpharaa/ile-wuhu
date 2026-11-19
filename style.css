@@ -1332,3 +1332,24 @@ body.with-dock footer { margin-bottom: 96px; }
 .ms-duo .av.lg { box-shadow: 0 0 0 4px #fff, 0 6px 16px rgba(0,0,0,.3); }
 .ms-members { font-size: .8rem; font-weight: 800; opacity: .9; margin-top: 2px; }
 .ms-members a { text-decoration: none; }
+
+/* ===== Chacun pour soi à 4 ===== */
+.match.m4 .mslot { min-height: 30px; }
+.match.m4 .mslot.empty4 { opacity: .45; min-height: 22px; }
+.match.m4 .mslot .score { font-size: .72rem; }
+.m4-sheet .f4-grid { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0 8px; }
+.f4 { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 8px; border-radius: 18px; background: rgba(255,255,255,.1); text-align: center; color: #fff; }
+.f4 small { font-weight: 800; opacity: .9; }
+.f4.q { background: rgba(46,204,113,.22); box-shadow: inset 0 0 0 2px rgba(46,204,113,.6); }
+.f4.champ { background: rgba(255,215,0,.25); box-shadow: inset 0 0 0 3px #ffd84d; }
+.f4.out { opacity: .6; }
+.f4-rank { position: absolute; top: 6px; left: 8px; font-weight: 900; font-size: 1.1rem; }
+.f4-rank img { width: 26px; height: 26px; }
+.f4 .ms-name { font-weight: 900; }
+.f4.wait .ms-av.empty { width: 72px; height: 72px; }
+.rank-pick { display: grid; gap: 8px; margin: 12px 0; }
+.rkp { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; border: 2px solid var(--line); background: #fff; font: inherit; font-weight: 800; cursor: pointer; text-align: left; }
+.rkp b { width: 38px; text-align: center; font-size: 1rem; color: var(--sea-dark); }
+.rkp.on { border-color: var(--sun); background: #fff8dc; }
+.pm4 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 4px; }
+.pm4 .pm-p b { color: #ffd84d; font-size: .75rem; margin-right: 2px; }
