@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119e';
+import { resolveBracket } from './bracket.js?v=20261119g';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -103,6 +103,10 @@ async function supabaseApi() {
       if (uid) q = q.or(`challenger.eq.${uid},opponent.eq.${uid}`);
       return ok(await q);
     },
+    // ----- Défis amicaux (aussi lancés depuis Discord avec /defi) -----
+    myDuels: async () => ok(await sb.rpc('wuhu_my_duels')),
+    createDuel: async (opp, game) => ok(await sb.rpc('wuhu_duel_create', { p_opponent: opp, p_game: game || null })),
+    duelAct: async (id, action, winnerD) => ok(await sb.rpc('wuhu_duel_act', { p_id: id, p_action: action, p_winner_d: winnerD || null })),
     react: async (tid, mid, uid, emoji, on) => ok(on
       ? await sb.from('wuhu_match_reactions').insert({ tournament_id: tid, match_id: mid, user_id: uid, emoji })
       : await sb.from('wuhu_match_reactions').delete().eq('tournament_id', tid).eq('match_id', mid).eq('user_id', uid).eq('emoji', emoji)),
@@ -259,11 +263,19 @@ function demoApi() {
     { id: 'd1', challenger: 'u1', opponent: 'u0', game: 'Mario Kart 8', winner: 'u0', done_at: new Date(Date.now() - 864e5).toISOString() },
     { id: 'd2', challenger: 'u0', opponent: 'u2', game: null, winner: 'u2', done_at: new Date(Date.now() - 2 * 864e5).toISOString() },
   ];
+  const ago = m => new Date(Date.now() - m * 6e4).toISOString();
+  const dn = (...ids) => Object.fromEntries(ids.map(i => ['D-' + i, { n: members[+i.slice(1)].username, a: members[+i.slice(1)].avatar_url }]));
+  const live = [
+    { id: 'dl1', challenger: 'u2', opponent: 'u0', challenger_d: 'D-u2', opponent_d: 'D-u0', game: 'Mario Kart 8 Deluxe', status: 'pending', created_at: ago(12), names: dn('u2', 'u0') },
+    { id: 'dl2', challenger: 'u0', opponent: 'u3', challenger_d: 'D-u0', opponent_d: 'D-u3', game: 'Smash Bros. Ultimate', status: 'accepted', accepted_at: ago(30), created_at: ago(40), names: dn('u0', 'u3') },
+    { id: 'dl3', challenger: 'u4', opponent: 'u0', challenger_d: 'D-u4', opponent_d: 'D-u0', game: 'Ping-pong (en vrai)', status: 'claimed', claimed_by_d: 'D-u4', winner_d: 'D-u4', accepted_at: ago(90), created_at: ago(100), names: dn('u4', 'u0') },
+    { id: 'dl4', challenger: 'u0', opponent: 'u1', challenger_d: 'D-u0', opponent_d: 'D-u1', game: 'Splatoon 3', status: 'done', winner_d: 'D-u0', reward_w: 10, reward_l: 3, done_at: ago(600), created_at: ago(700), names: dn('u0', 'u1') },
+  ];
   let reactions = [['u1', '🔥'], ['u2', '🔥'], ['u3', '😂'], ['u4', '🔥'], ['u5', '😱']].map(([user_id, emoji]) => ({ tournament_id: 't2', match_id: 'W1-0', user_id, emoji }));
   const demoImg = (h, e) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${h},70%,60%)"/><text x="200" y="175" font-size="90" text-anchor="middle">${e}</text></svg>`);
   let photos = [['🎳', 200, 'La finale de bowling !', ['u1', 'u2', 'u3']], ['🍕', 30, 'Pause pizza', ['u2']], ['🏆', 50, 'Les champions', ['u1', 'u2', 'u3', 'u4', 'u5']], ['🎮', 260, null, []], ['🎾', 120, 'Match serré', ['u4']]]
     .map(([e, h, caption, likes], i) => ({ id: 'ph' + i, competition_id: 'c1', user_id: 'u' + (i + 1), path: 'x', url: demoImg(h, e), caption, created_at: new Date(Date.now() - i * 3e6).toISOString(), likes: likes.map(user_id => ({ user_id })) }));
-  let compRegs = [];
+  let compRegs = ['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7'].map((user_id, i) => ({ competition_id: 'c1', user_id, joined_at: '2026-11-1' + i }));
   const settings = {};
   let lid = 1;
   const addL = (user_id, rubis, points, reason, tournament_id = null) =>
@@ -349,6 +361,24 @@ function demoApi() {
     },
     async listReactions(tid) { return clone(reactions.filter(r => r.tournament_id === tid)); },
     async listDuels(uid) { return clone(duels.filter(d => !uid || d.challenger === uid || d.opponent === uid)); },
+    async myDuels() { return { me: 'D-u0', duels: clone(live) }; },
+    async createDuel(opp, game) {
+      const o = prof(opp); if (!o || o.is_guest) throw new Error('Ce membre ne peut pas être défié');
+      if (live.some(d => ['pending', 'accepted', 'claimed'].includes(d.status) && [d.challenger, d.opponent].includes(opp))) throw new Error('Vous avez déjà un défi en cours tous les deux : terminez-le d\'abord !');
+      const d = { id: 'dl' + Date.now(), challenger: 'u0', opponent: opp, challenger_d: 'D-u0', opponent_d: 'D-' + opp, game: game || null, status: 'pending', created_at: new Date().toISOString(),
+        names: { 'D-u0': { n: prof('u0').username, a: prof('u0').avatar_url }, ['D-' + opp]: { n: o.username, a: o.avatar_url } } };
+      live.unshift(d); return clone(d);
+    },
+    async duelAct(id, action, w) {
+      const d = live.find(x => x.id === id); const me = 'D-u0';
+      if (action === 'acc') Object.assign(d, { status: 'accepted', accepted_at: new Date().toISOString() });
+      else if (action === 'dec') d.status = 'declined';
+      else if (action === 'can') d.status = 'cancelled';
+      else if (action === 'win') Object.assign(d, w === me ? { status: 'claimed', claimed_by_d: me, winner_d: w } : { status: 'done', winner_d: w, done_at: new Date().toISOString(), reward_w: 10, reward_l: 3 });
+      else if (action === 'ok') Object.assign(d, { status: 'done', done_at: new Date().toISOString(), reward_w: 10, reward_l: 3 });
+      else if (action === 'no') Object.assign(d, { status: 'accepted', claimed_by_d: null, winner_d: null });
+      return { status: d.status, reward: d.status === 'done' ? { win: 10, lose: 3, note: null } : null };
+    },
     async react(tid, mid, uid, emoji, on) {
       reactions = reactions.filter(r => !(r.tournament_id === tid && r.match_id === mid && r.user_id === uid && r.emoji === emoji));
       if (on) reactions.push({ tournament_id: tid, match_id: mid, user_id: uid, emoji });

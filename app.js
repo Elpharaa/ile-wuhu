@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119e';
+import { api, DEMO } from './api.js?v=20261119g';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119e';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119g';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -309,11 +309,12 @@ function renderNav() {
   $('#user').innerHTML = me
     ? `${me.in_guild ? `<a href="#/boutique" class="wallet">${rubis(bal(me.id).rubis)}</a>` : ''}
        <div class="me-wrap">
-         <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${state.achCount ? `<span class="notif">${state.achCount}</span>` : ''}${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
+         <button class="me" id="me-btn" aria-haspopup="true" aria-expanded="false">${(state.achCount || 0) + (state.duelCount || 0) ? `<span class="notif">${(state.achCount || 0) + (state.duelCount || 0)}</span>` : ''}${avatar(me, 'av sm')}<span class="me-name">${uname(me)}</span><span class="caret">▾</span></button>
          <div class="me-menu" id="me-menu" hidden>
            <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
            <a href="#/pantheon" class="${sub('#/pantheon')}">🏛️ Panthéon</a>
            <a href="#/quiz" class="${sub('#/quiz')}">🧠 Quiz du jour</a>
+           <a href="#/defis" class="${sub('#/defis')}">⚔️ Mes défis${state.duelCount ? `<span class="notif in">${state.duelCount}</span>` : ''}</a>
            <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès${state.achCount ? `<span class="notif in">${state.achCount}</span>` : ''}</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
            <a href="#/roles" class="${sub('#/roles')}">🎖️ Rôles</a>
@@ -354,6 +355,7 @@ async function route() {
     case 'classement': return pageLeaderboard();
     case 'boutique': return pageShop();
     case 'succes': return pageAchievements();
+    case 'defis': return pageDuels();
     case 'pantheon': return pagePantheon();
     case 'quiz': return pageQuiz();
     case 'soiree': return pageParty(parts[1]);
@@ -423,6 +425,8 @@ function tournamentCard(t) {
     </a>`;
 }
 
+// Playlist collaborative YouTube de l'île (lien partagé par Elphara)
+const PLAYLIST_URL = 'https://youtube.com/playlist?list=PLddnIRf8YbNU';
 async function pageHome() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   const [list0, comps0] = await Promise.all([safe(() => api.listTournaments()), safe(() => api.listCompetitions())]);
@@ -442,6 +446,10 @@ async function pageHome() {
     ${partyBanner(liveComps)}
     <div id="daily-slot"></div>
     <div id="quiz-slot"></div>
+    <a class="card yt-card" href="${PLAYLIST_URL}" target="_blank" rel="noopener">
+      <span class="yt-ic"><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#ff0033"/><path d="M11 5.5v9l8-4.5z" fill="#fff"/></svg></span>
+      <span class="yt-txt"><b>🎵 La playlist de l'île</b><small>Notre playlist collaborative YouTube : écoute-la et ajoute tes sons préférés !</small></span>
+      <span class="yt-go">Écouter →</span></a>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, oppOf(x, people))).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -1655,6 +1663,7 @@ async function pageProfile(id) {
         <h3>Rôles sur le serveur</h3>
         <div class="roles">${rolesOf(p).map(rolePill).join('') || '<span class="muted">Aucun rôle</span>'}</div>
         ${p.id === state.me.id ? '<button class="btn ghost sm refresh" id="refresh-roles">↻ Actualiser mes rôles</button>' : ''}
+        ${p.id !== state.me.id && p.in_guild && !p.is_guest ? '<button class="btn primary duel-btn" id="duel-btn">⚔️ Défier</button>' : p.id === state.me.id ? '<a class="btn ghost sm" href="#/defis">⚔️ Mes défis</a>' : ''}
         <div class="stats">
           <div><strong>${tours.length}</strong><span>tournoi${tours.length > 1 ? 's' : ''} joué${tours.length > 1 ? 's' : ''}</span></div>
           <div><strong>${wins.length}</strong><span>victoire${wins.length > 1 ? 's' : ''} ${I.trophee}</span></div>
@@ -1725,6 +1734,7 @@ async function pageProfile(id) {
     </section>`;
   $('#give')?.addEventListener('click', () => giveDialog(p));
   $('#refresh-roles')?.addEventListener('click', () => api.signIn());
+  $('#duel-btn')?.addEventListener('click', () => duelDialog(p));
 }
 
 
@@ -2130,6 +2140,7 @@ async function pageParty(cid) {
   let prevDone = null;
   const feed = [];
   partyTimers.forEach(clearInterval); partyTimers = [];
+  const stage = partyStage(id => people.get(id));
 
   const draw = async () => {
     if (!location.hash.startsWith('#/soiree/')) return;
@@ -2149,10 +2160,21 @@ async function pageParty(cid) {
       });
     });
     // nouveaux résultats depuis l'ouverture de la page : on fête ça
+    let fresh = [];
     if (prevDone) {
-      const fresh = [...doneNow].filter(([k]) => !prevDone.has(k)).map(([, v]) => v);
+      fresh = [...doneNow].filter(([k]) => !prevDone.has(k)).map(([, v]) => v);
       if (fresh.length) { feed.unshift(...fresh); confetti(60); }
     } else feed.push(...[...doneNow.values()].slice(-6).reverse());
+    // les petits habitants : inscrits à la soirée + joueurs des tournois
+    const expand = (t, id) => teamOf(t, id)?.members || [id];
+    const [regs, parts] = await Promise.all([safe(() => api.compMembers(cid)),
+      Promise.all(tours.map(t => safe(() => api.listParticipants(t.id))))]);
+    const ids = new Set([...(regs || []).map(r => r.user_id), ...(parts || []).flat().filter(Boolean).map(p => p.user_id)]);
+    stage.update({
+      ids: [...ids].filter(id => people.has(id)),
+      fights: live.map(x => ({ title: x.t.name, sides: x.s.players.filter(Boolean).map(id => expand(x.t, id)) })),
+      winners: fresh.flatMap(x => expand(x.t, x.s.winner)).filter(Boolean),
+    });
     prevDone = doneNow;
     const start = c.starts_at ? new Date(c.starts_at) : null;
     const before = start && start > new Date();
@@ -2181,6 +2203,7 @@ async function pageParty(cid) {
         <div class="party-clock" id="party-clock"></div>
       </div>
       ${before && !running ? `<div class="party-count"><small>Début dans</small><div id="countdown" data-at="${start.getTime()}"></div></div>` : ''}
+      <div id="stage-slot"></div>
       <div class="party-grid">
         <section class="pbox"><h2>⚔️ Matchs en cours <span class="pill-info">${live.length}</span></h2>
           ${live.map(line).join('') || `<p class="pempty">${finished ? 'Tous les matchs sont joués !' : 'Aucun match en cours pour l\'instant.'}</p>`}</section>
@@ -2189,6 +2212,7 @@ async function pageParty(cid) {
         <section class="pbox"><h2>🏆 Classement de la soirée</h2>
           ${rank.map(([u, n], i) => `<div class="prank r${i + 1}"><span>${['🥇', '🥈', '🥉'][i] || i + 1}</span>${avatarImg(who(u), 'av sm')}<b>${uname(who(u))}</b><em>${n} pts</em></div>`).join('') || '<p class="pempty">Pas encore de points.</p>'}</section>
       </div>`;
+    $('#stage-slot')?.appendChild(stage.el); stage.measure();
     $('#party-imgs')?.addEventListener('click', () => partyImagesDialog(c, drawDeco));
     $('#party-place')?.addEventListener('click', () => partyPlaceMode(c, drawDeco));
     tick();
@@ -2216,8 +2240,112 @@ async function pageParty(cid) {
   const tours = (await safe(() => api.tournamentsOf(cid))) || [];
   let tm;
   const subs = tours.map(t => api.subscribe(t.id, () => { clearTimeout(tm); tm = setTimeout(draw, 500); }));
-  unsubscribe = () => { subs.forEach(f => f && f()); partyTimers.forEach(clearInterval); partyTimers = []; };
+  unsubscribe = () => { subs.forEach(f => f && f()); partyTimers.forEach(clearInterval); partyTimers = []; stage.stop(); };
   partyTimers.push(setInterval(tick, 1000), setInterval(draw, 20000));
+}
+
+// ---------- La scène du mode soirée : les inscrits se baladent sur l'île ----------
+// Chaque membre est un petit perso (avatar + pseudo) qui marche au hasard. Quand il a un match en cours,
+// il file à l'arène retrouver son adversaire et ils s'affrontent ; le gagnant d'un match qui vient de finir saute de joie.
+function partyStage(getP) {
+  const el = document.createElement('section');
+  el.className = 'pstage';
+  el.innerHTML = `<div class="pstage-head"><b>🏝️ Sur l'île ce soir</b><span id="ps-count"></span></div>
+    <div class="pstage-field"><div class="pstage-sea"></div><div class="pstage-arenas"></div><div class="pstage-folk"></div></div>`;
+  const field = $('.pstage-field', el), folk = $('.pstage-folk', el), arenas = $('.pstage-arenas', el);
+  const W = new Map(); // id → walker
+  let fights = [], raf = 0, last = 0, size = { w: 600, h: 220 }, stopped = false;
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  // un point au hasard sur l'herbe de l'île (ellipse au centre de la scène)
+  const spot = () => {
+    const a = rnd(0, Math.PI * 2), r = Math.sqrt(Math.random()) * .9;
+    return { x: size.w * (.5 + Math.cos(a) * .38 * r), y: Math.max(58, Math.min(size.h - 18, size.h * (.64 + Math.sin(a) * .24 * r))) };
+  };
+  const measure = () => { const r = field.getBoundingClientRect(); if (r.width) size = { w: r.width, h: r.height }; };
+  function add(id) {
+    const p = getP(id); if (!p) return;
+    const d = document.createElement('div');
+    d.className = 'walker';
+    d.innerHTML = `<span class="wk-fx"></span><span class="wk-body">${avatarImg(p, 'av')}</span><span class="wk-name">${esc(p.username)}</span>`;
+    folk.appendChild(d);
+    const s = spot();
+    W.set(id, { id, el: d, x: s.x, y: s.y, tx: s.x, ty: s.y, wait: rnd(0, 2), speed: rnd(28, 52), dir: 1, mode: 'walk' });
+  }
+  function update({ ids, fights: f, winners }) {
+    measure();
+    const want = new Set([...ids.slice(0, 40), ...f.flatMap(x => x.sides.flat())].filter(id => getP(id)));
+    for (const id of want) if (!W.has(id)) add(id);
+    for (const [id, w] of W) if (!want.has(id)) { w.el.remove(); W.delete(id); }
+    $('#ps-count', el).textContent = `${want.size} inscrit${want.size > 1 ? 's' : ''}${f.length ? ` · ⚔️ ${f.length} match${f.length > 1 ? 's' : ''} en cours` : ''}`;
+    el.hidden = !want.size;
+    // arènes : une par match en cours, autant que la largeur le permet ; un joueur n'est que dans une arène à la fois
+    const maxA = Math.max(1, Math.floor(size.w / 130));
+    const taken = new Set();
+    fights = [];
+    for (const x of f) {
+      if (fights.length >= maxA) break;
+      const sides = x.sides.map(team => team.filter(id => W.has(id) && !taken.has(id))).filter(t => t.length);
+      if (sides.length < 2) continue;
+      sides.flat().forEach(id => taken.add(id));
+      fights.push({ ...x, sides });
+    }
+    const n = fights.length;
+    arenas.innerHTML = fights.map((x, k) => `<div class="arena" style="left:${((k + .5) / n) * 100}%"><span class="arena-ring"></span><span class="arena-vs">⚔️</span><small>${esc(x.title)}</small></div>`).join('');
+    const fighting = new Map();
+    fights.forEach((x, k) => {
+      const sides = x.sides;
+      sides.forEach((team, si) => team.forEach((id, mi) => {
+        const ang = sides.length === 2 ? (si ? 0 : Math.PI) : Math.PI + (si / sides.length) * Math.PI * 2;
+        // position relative à l'arène (recalculée à chaque image : la scène peut changer de taille)
+        fighting.set(id, { cf: (k + .5) / n, n, ax: Math.cos(ang), ay: Math.sin(ang), mi, face: Math.cos(ang) > .1 ? -1 : 1 });
+      }));
+    });
+    for (const [id, w] of W) {
+      const fz = fighting.get(id);
+      if (fz) { w.mode = 'fight'; w.fz = fz; w.face = fz.face; }
+      else if (w.mode === 'fight') { w.mode = 'walk'; w.wait = 0; }
+      w.el.classList.toggle('fighting', !!fz);
+    }
+    for (const id of winners || []) {
+      const w = W.get(id); if (!w) continue;
+      w.el.classList.add('cheer'); w.cheerUntil = performance.now() + 6000;
+    }
+  }
+  function tick(t) {
+    if (stopped) return;
+    const dt = Math.min(.05, (t - (last || t)) / 1000); last = t;
+    if (!document.hidden && el.isConnected) {
+      if (Math.random() < .02) measure();
+      for (const w of W.values()) {
+        if (w.cheerUntil && t > w.cheerUntil) { w.el.classList.remove('cheer'); w.cheerUntil = 0; }
+        if (w.mode === 'fight' && w.fz) {
+          const z = w.fz, r = Math.max(24, Math.min(46, size.w / z.n / 2 - 22));
+          w.tx = z.cf * size.w + z.ax * r; w.ty = size.h * .55 + 14 + z.ay * r * .45 + z.mi * 22;
+        }
+        const dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
+        let moving = false;
+        if (dist > 2) {
+          const sp = (w.mode === 'fight' ? 140 : w.speed) * dt;
+          w.x += dx / dist * Math.min(sp, dist); w.y += dy / dist * Math.min(sp, dist);
+          if (Math.abs(dx) > 1) w.dir = dx > 0 ? 1 : -1;
+          moving = true;
+        } else if (w.mode === 'fight') {
+          w.dir = w.face;
+        } else if ((w.wait -= dt) <= 0) {
+          const s = spot(); w.tx = s.x; w.ty = s.y; w.wait = rnd(1.5, 5);
+        }
+        w.el.classList.toggle('moving', moving);
+        w.el.style.transform = `translate(${w.x.toFixed(1)}px, ${w.y.toFixed(1)}px)`;
+        w.el.style.zIndex = Math.round(w.y);
+        w.el.style.setProperty('--dir', w.dir);
+      }
+    }
+    raf = requestAnimationFrame(tick);
+  }
+  if (calm) { el.classList.add('calm'); } 
+  raf = requestAnimationFrame(tick);
+  return { el, update, measure, stop() { stopped = true; cancelAnimationFrame(raf); } };
 }
 
 // Images perso du mode soirée : elles « respirent » (grossissent / rétrécissent) sur les bords de l'écran
@@ -2455,6 +2583,97 @@ function burst(el) {
   }
 }
 
+// ---------- Défis amicaux (site + /defi sur Discord) ----------
+const DUEL_GAMES = ['Mario Kart 8 Deluxe', 'Super Smash Bros. Ultimate', 'Splatoon 3', 'Mario Party Jamboree', 'Wii Sports', 'Wii Sports Resort', 'Tetris 99', 'Nintendo Switch Sports', 'Ping-pong (en vrai)', 'Échecs (en vrai)'];
+const DUEL_RULES = `<div class="duel-rules">
+  <p>🎮 <b>En ligne</b> sur vos jeux ou 🛋️ <b>en vrai</b>, quand vous voulez, même en dehors des tournois !</p>
+  <p>🎁 <b>Gagnant</b> +10 ${I.rubis} +10 🍄 · <b>perdant</b> +3 ${I.rubis} +3 🍄</p>
+  <p class="small muted">3 défis récompensés par jour maximum · 1 seul par duo et par jour · rien si le match dure moins de 3 minutes.</p>
+  <p class="duel-warn">⚠️ Les défis servent à <b>jouer pour de vrai</b>. Se lancer des défis en boucle sans jouer pour gagner des rubis, c'est de la triche : les admins peuvent retirer les gains et sanctionner.</p>
+</div>`;
+function duelDialog(p) {
+  const box = openModal(`<h2>⚔️ Défier ${uname(p)}</h2>
+    <div class="duel-vs">${avatar(state.me, 'av lg')}<b>VS</b>${avatar(p, 'av lg')}</div>
+    <label class="form">Sur quel jeu ? <small class="muted">(facultatif)</small>
+      <input id="duel-game" list="duel-games" maxlength="80" placeholder="Mario Kart, Smash, ping-pong…">
+      <datalist id="duel-games">${DUEL_GAMES.map(g => `<option value="${esc(g)}">`).join('')}</datalist></label>
+    ${DUEL_RULES}
+    <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button type="button" class="btn primary" id="duel-go">⚔️ Lancer le défi</button></div>`);
+  $('#duel-go', box).addEventListener('click', () => safe(async () => {
+    $('#duel-go', box).disabled = true;
+    try { await api.createDuel(p.id, $('#duel-game', box).value.trim()); }
+    finally { const b = $('#duel-go', box); if (b) b.disabled = false; }
+    closeModal(); toast(`Défi envoyé à ${p.username} ⚔️`); location.hash = '#/defis';
+  }));
+}
+// Défis qui attendent une action de ma part
+const duelTodo = (d, me) => (d.status === 'pending' && d.opponent_d === me) || d.status === 'accepted' || (d.status === 'claimed' && d.claimed_by_d !== me);
+async function refreshDuelCount() {
+  if (!state.me?.in_guild || !api.myDuels) return;
+  const r = await safe(() => api.myDuels()); if (!r) return;
+  const n = (r.duels || []).filter(d => duelTodo(d, r.me)).length;
+  if (n !== state.duelCount) { state.duelCount = n; renderNav(); }
+}
+async function pageDuels() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const [r, members] = await Promise.all([safe(() => api.myDuels()), safe(() => api.listMembers())]);
+  if (!r) { app.innerHTML = '<p class="empty">Impossible de charger tes défis.</p>'; return; }
+  const me = r.me, list = r.duels || [];
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const pl = (d, x) => {
+    const uid = x === d.challenger_d ? d.challenger : d.opponent;
+    return people.get(uid) || { id: uid, username: d.names?.[x]?.n || 'Joueur', avatar_url: d.names?.[x]?.a || null, _noacc: !uid };
+  };
+  const other = d => d.challenger_d === me ? d.opponent_d : d.challenger_d;
+  const nm = (d, x) => x === me ? 'Toi' : uname(pl(d, x));
+  const link = (d, x) => { const q = pl(d, x); return q._noacc ? avatar(q, 'av md') : `<a href="#/profil/${esc(q.id)}">${avatar(q, 'av md')}</a>`; };
+  const card = d => {
+    const o = other(d), game = d.game ? `<span class="duel-game">🎮 ${esc(d.game)}</span>` : '';
+    let txt = '', btns = '';
+    if (d.status === 'pending') {
+      if (d.opponent_d === me) { txt = `<b>${nm(d, o)}</b> te défie !`; btns = `<button class="btn primary sm" data-a="acc">✅ J'accepte</button><button class="btn danger sm" data-a="dec">Je refuse</button>`; }
+      else { txt = `En attente de la réponse de <b>${nm(d, o)}</b>…`; btns = `<button class="btn ghost sm" data-a="can">Annuler</button>`; }
+    } else if (d.status === 'accepted') {
+      txt = `Défi accepté ! Une fois le match joué, qui a gagné ?`;
+      btns = `<button class="btn primary sm" data-a="win" data-w="${esc(me)}">🏆 J'ai gagné</button><button class="btn ghost sm" data-a="win" data-w="${esc(o)}">🏆 ${nm(d, o)} a gagné</button><button class="btn ghost sm" data-a="can">Annuler</button>`;
+    } else if (d.status === 'claimed') {
+      if (d.claimed_by_d === me) txt = `Tu as déclaré ta victoire. <b>${nm(d, o)}</b> doit confirmer…`;
+      else { txt = `<b>${nm(d, o)}</b> dit avoir gagné. Tu confirmes ?`; btns = `<button class="btn primary sm" data-a="ok">✅ Je confirme</button><button class="btn danger sm" data-a="no">Je conteste</button>`; }
+    } else if (d.status === 'done') {
+      const won = d.winner_d === me;
+      txt = `${won ? '🏆 <b>Victoire</b>' : '😅 Défaite'} contre <b>${nm(d, o)}</b>` +
+        (d.reward_w != null ? `<br><small class="muted">🎁 ${won ? `+${d.reward_w}` : `+${d.reward_l}`} ${I.rubis} ${won ? `+${d.reward_w}` : `+${d.reward_l}`} 🍄${d.reward_note ? ` · ${esc(d.reward_note)}` : ''}</small>` : '');
+    } else txt = d.status === 'declined' ? `Défi refusé` : `Défi annulé`;
+    return `<div class="card duel-card st-${d.status} ${duelTodo(d, me) ? 'todo' : ''}" data-id="${esc(d.id)}">
+      <div class="duel-vs sm">${link(d, d.challenger_d)}<b>VS</b>${link(d, d.opponent_d)}</div>
+      <div class="duel-info">${game}<p>${txt}</p>${btns ? `<div class="duel-acts">${btns}</div>` : ''}</div></div>`;
+  };
+  const open = list.filter(d => ['pending', 'accepted', 'claimed'].includes(d.status));
+  const todo = open.filter(d => duelTodo(d, me)), wait = open.filter(d => !duelTodo(d, me));
+  const past = list.filter(d => !open.includes(d)).slice(0, 15);
+  app.innerHTML = `
+    <div class="page-head"><h1>⚔️ Mes défis</h1><p class="muted">Défie n'importe quel membre depuis son profil, ou avec <b>/defi</b> sur Discord.</p></div>
+    <details class="card duel-howto"><summary>Comment ça marche ?</summary>
+      <ol><li>Va sur le profil d'un membre et clique <b>⚔️ Défier</b>.</li><li>Il accepte le défi ici (ou sur Discord).</li><li>Jouez ! Puis l'un de vous indique le gagnant et l'autre confirme.</li></ol>${DUEL_RULES}</details>
+    <section><h2>À toi de jouer <span class="pill-info">${todo.length}</span></h2>
+      <div class="duel-list">${todo.map(card).join('') || '<p class="empty">Rien à faire pour l\'instant. <a href="#/membres">Trouve un adversaire →</a></p>'}</div></section>
+    ${wait.length ? `<section><h2>En attente</h2><div class="duel-list">${wait.map(card).join('')}</div></section>` : ''}
+    ${past.length ? `<section><h2>Récemment</h2><div class="duel-list">${past.map(card).join('')}</div></section>` : ''}`;
+  app.querySelectorAll('.duel-card [data-a]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    const id = b.closest('.duel-card').dataset.id, a = b.dataset.a;
+    if (a === 'can' && !confirm('Annuler ce défi ?')) return;
+    if (a === 'dec' && !confirm('Refuser ce défi ?')) return;
+    b.disabled = true;
+    const res = await api.duelAct(id, a, b.dataset.w);
+    if (res?.status === 'done' && res.reward) {
+      const rw = res.reward;
+      toast(rw.win || rw.lose ? `Défi terminé ! 🎁 Gagnant +${rw.win} 💎 · perdant +${rw.lose} 💎` : `Défi terminé${rw.note ? ` (${rw.note})` : ''}`);
+      await loadBalances(); renderNav();
+    } else toast({ accepted: a === 'no' ? 'Contesté : indiquez à nouveau le gagnant' : 'Défi accepté ! Bon match ⚔️', claimed: 'Victoire déclarée : ton adversaire doit confirmer', declined: 'Défi refusé', cancelled: 'Défi annulé' }[res?.status] || 'OK');
+    refreshDuelCount(); pageDuels();
+  })));
+}
+
 // ---------- Succès ----------
 const achGoal = (a, st) => a.goal || (a.metric === 'collection' ? st.collection_total || 0 : 0);
 const achReady = (list, done, st) => list.filter(a => !done.has(a.id) && (st[a.metric] || 0) >= achGoal(a, st));
@@ -2464,6 +2683,7 @@ async function refreshAchCount() {
   const [list, done, st] = await Promise.all([safe(() => api.listAchievements()), safe(() => api.achievementsDone(state.me.id)), safe(() => api.myStats())]);
   const n = achReady(list || [], new Set((done || []).map(x => x.achievement_id)), st || {}).length;
   if (n !== state.achCount) { state.achCount = n; renderNav(); }
+  refreshDuelCount();
 }
 async function pageAchievements() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
