@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119m';
+import { api, DEMO } from './api.js?v=20261119n';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119m';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119n';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -454,7 +454,7 @@ async function pageHome() {
       <span class="yt-ic"><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#ff0033"/><path d="M11 5.5v9l8-4.5z" fill="#fff"/></svg></span>
       <span class="yt-txt"><b>🎵 La playlist de l'île</b><small>Notre playlist collaborative YouTube : écoute-la et ajoute tes sons préférés !</small></span>
       <span class="yt-go">Écouter →</span></a>
-    <a class="card bt-home" href="#/blindtest"><span class="bt-home-ic">🎧</span><span><b>Blind test Nintendo</b><small>Devine de quel jeu vient la musique du jour !</small></span><span class="bt-home-go">Jouer →</span></a>
+    <a class="card bt-home" href="#/blindtest"><span class="bt-home-ic">🎧</span><span><b>Blind test Nintendo</b><small>La musique du jour et des parties en multijoueur avec tes amis !</small></span><span class="bt-home-go">Jouer →</span></a>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, oppOf(x, people))).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -2720,26 +2720,14 @@ async function pageBlindtest() {
   btCurrent?.destroy(); btCurrent = null;
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   const day = parisDay();
-  const [today, best, members] = await Promise.all([safe(() => api.btToday(day)), safe(() => api.btBest()), safe(() => api.listMembers())]);
-  const people = new Map((members || []).map(m => [m.id, m]));
+  const today = await safe(() => api.btToday(day));
   app.innerHTML = `
     <div class="page-head"><h1>🎵 Blind test Nintendo</h1></div>
     <p class="small">Écoute l'extrait, trouve de quel jeu vient la musique ! Les extraits sont lus depuis YouTube : monte le son 🔊</p>
     <section class="card bt-card" id="bt-day"></section>
     <section class="card bt-card bt-multi-card" id="bt-multi">${btMultiCard()}</section>
-    <section class="card bt-card" id="bt-series">
-      <div class="quiz-head"><h2>🔥 Mode série</h2></div>
-      <p>Enchaîne <b>10 musiques</b> au hasard et bats ton record ! <span class="muted">(pour le plaisir : pas de rubis en jeu)</span></p>
-      <button class="btn primary" id="bt-start">🎮 Lancer une série</button>
-      <h3 class="bt-top-h">🏆 Meilleurs scores</h3>
-      <div class="lb-table">${(best || []).filter(r => people.has(r.user_id)).map((r, i) => `
-        <a href="#/profil/${esc(r.user_id)}" class="lb-row ${r.user_id === state.me.id ? 'me-row' : ''}">
-          <span class="lb-rank">${[I.medal1, I.medal2, I.medal3][i] || i + 1}</span>${avatar(people.get(r.user_id), 'av sm')}
-          <span class="lb-name">${uname(people.get(r.user_id))}</span><b>${r.best} / ${r.total}</b></a>`).join('') || '<p class="empty">Personne n\'a encore fait de série. Sois le premier !</p>'}</div>
-    </section>
     ${state.me.is_admin ? '<section id="bt-admin"></section>' : ''}`;
   await drawBtDay(today);
-  $('#bt-start').addEventListener('click', () => btSeries());
   bindBtMulti($('#bt-multi'));
   if (state.me.is_admin) drawBtAdmin();
 }
@@ -2824,8 +2812,8 @@ async function drawBtAdmin() {
     <p class="small">Colle le lien YouTube d'une musique Nintendo, choisis le début de l'extrait et les réponses. Teste toujours l'extrait : certaines vidéos refusent d'être lues ailleurs que sur YouTube.</p>
     <h3 class="qa-bank-h">📅 Blind tests du jour</h3>
     <div class="qa-list">${upcoming.map(row).join('') || '<p class="empty">Aucun blind test prévu.</p>'}</div>
-    <h3 class="qa-bank-h">🎮 Banque du mode série <small class="muted">(${bank.length + past.length} musique${bank.length + past.length > 1 ? 's' : ''})</small></h3>
-    <div class="qa-list">${bank.map(row).join('') || '<p class="empty">La banque est vide : il faut au moins 5 musiques pour le mode série.</p>'}</div>
+    <h3 class="qa-bank-h">🎮 Banque du multijoueur <small class="muted">(${bank.length + past.length} musique${bank.length + past.length > 1 ? 's' : ''})</small></h3>
+    <div class="qa-list">${bank.map(row).join('') || '<p class="empty">La banque est vide : il faut au moins 5 musiques pour le multijoueur.</p>'}</div>
     ${past.length ? `<details class="qa-past"><summary>Blind tests passés (${past.length})</summary><div class="qa-list">${past.map(row).join('')}</div></details>` : ''}`;
   const form = t => {
     const k = t ? keyOf(t) : {}, ch = t?.choices || ['', '', '', ''];
@@ -2834,7 +2822,7 @@ async function drawBtAdmin() {
       <div class="form qf">
         <div class="qf-type">
           <label class="qf-opt"><input type="radio" name="bt-type" value="day" ${t && !t.day ? '' : 'checked'}> 📅 Blind test du jour</label>
-          <label class="qf-opt"><input type="radio" name="bt-type" value="bank" ${t && !t.day ? 'checked' : ''}> 🎮 Banque du mode série</label>
+          <label class="qf-opt"><input type="radio" name="bt-type" value="bank" ${t && !t.day ? 'checked' : ''}> 🎮 Banque du multijoueur</label>
         </div>
         <label id="bt-day-l">Jour<input type="date" id="bt-f-day" value="${esc(t?.day || next)}" min="${today}"></label>
         <label>Lien YouTube<input id="bt-f-yt" placeholder="https://www.youtube.com/watch?v=…" value="${t ? 'https://youtu.be/' + esc(t.youtube_id) : ''}"></label>
