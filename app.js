@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119q';
+import { api, DEMO } from './api.js?v=20261119r';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119q';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119r';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -455,7 +455,7 @@ async function pageHome() {
       <span class="yt-ic"><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#ff0033"/><path d="M11 5.5v9l8-4.5z" fill="#fff"/></svg></span>
       <span class="yt-txt"><b>🎵 La playlist de l'île</b><small>Notre playlist collaborative YouTube : écoute-la et ajoute tes sons préférés !</small></span>
       <span class="yt-go">Écouter →</span></a>
-    <a class="card bt-home" href="#/blindtest"><span class="bt-home-ic">🎧</span><span><b>Blind test Nintendo</b><small>La musique du jour et des parties en multijoueur avec tes amis !</small></span><span class="bt-home-go">Jouer →</span></a>
+    <a class="card bt-home" href="#/blindtest"><span class="bt-home-ic">🎧</span><span><b>Blind test</b><small>La musique du jour et des parties en multijoueur avec tes amis !</small></span><span class="bt-home-go">Jouer →</span></a>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, oppOf(x, people))).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -2642,7 +2642,7 @@ function burst(el) {
 }
 
 // =====================================================================
-//  Blind test Nintendo : extraits lus depuis YouTube (rien n'est hébergé sur le site)
+//  Blind test : extraits lus depuis YouTube (rien n'est hébergé sur le site)
 // =====================================================================
 let ytApi = null;
 function ytReady() {
@@ -2723,7 +2723,7 @@ async function pageBlindtest() {
   const day = parisDay();
   const today = await safe(() => api.btToday(day));
   app.innerHTML = `
-    <div class="page-head"><h1>🎵 Blind test Nintendo</h1></div>
+    <div class="page-head"><h1>🎵 Blind test</h1></div>
     <p class="small">Écoute l'extrait, trouve de quel jeu vient la musique ! Les extraits sont lus depuis YouTube : monte le son 🔊</p>
     <section class="card bt-card" id="bt-day"></section>
     <section class="card bt-card bt-multi-card" id="bt-multi">${btMultiCard()}</section>
@@ -2810,7 +2810,7 @@ async function drawBtAdmin() {
       <button class="btn ghost sm" data-btplay="${esc(t.id)}">▶️ Écouter</button><button class="btn ghost sm" data-btedit="${esc(t.id)}">Modifier</button><button class="btn danger sm" data-btdel="${esc(t.id)}">✕</button></div>`;
   box.innerHTML = `
     <div class="page-head"><h2>Gérer le blind test <span class="admin-label">Admin</span></h2><button class="btn primary sm" id="bt-add">+ Nouvelle musique</button></div>
-    <p class="small">Colle le lien YouTube d'une musique Nintendo, choisis le début de l'extrait et les réponses. Teste toujours l'extrait : certaines vidéos refusent d'être lues ailleurs que sur YouTube.</p>
+    <p class="small">Colle le lien YouTube d'une musique de jeu vidéo, choisis le début de l'extrait et les réponses. Teste toujours l'extrait : certaines vidéos refusent d'être lues ailleurs que sur YouTube.</p>
     <h3 class="qa-bank-h">📅 Blind tests du jour</h3>
     <div class="qa-list">${upcoming.map(row).join('') || '<p class="empty">Aucun blind test prévu.</p>'}</div>
     <h3 class="qa-bank-h">🎮 Banque du multijoueur <small class="muted">(${list.length} musique${list.length > 1 ? 's' : ''} en jeu, blind tests du jour compris)</small></h3>
