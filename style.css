@@ -1382,3 +1382,19 @@ body.with-dock footer { margin-bottom: 96px; }
 .qf-prev img { width: 100%; height: 100%; object-fit: cover; }
 .qa-bank-h { margin: 18px 0 4px; }
 .qf [hidden] { display: none !important; }
+
+/* ===== Mode soirée : images perso qui respirent ===== */
+.party-wrap { position: relative; overflow: hidden; }
+.party-wrap > #party { position: relative; z-index: 1; }
+.party-deco { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.party-deco img { position: absolute; height: auto; max-height: 220px; object-fit: contain; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35));
+  animation: partyBreath 2.6s ease-in-out infinite alternate; transform-origin: center; }
+@keyframes partyBreath { 0% { transform: scale(.82) rotate(-6deg); } 50% { transform: scale(1.12) rotate(3deg); } 100% { transform: scale(.95) rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .party-deco img { animation: none; } }
+.party-imgs { border: 0; cursor: pointer; font-size: 1.1rem; }
+.pi-list { display: grid; gap: 8px; margin: 10px 0; }
+.pi-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; background: var(--sky2); }
+.pi-row img { width: 56px; height: 56px; object-fit: contain; border-radius: 8px; background: #fff; }
+.pi-row select { flex: 1; }
+.pi-add { margin-bottom: 6px; }
+@media (max-width: 640px) { .party-deco img { max-width: 24vw; } }

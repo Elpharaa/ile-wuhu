@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119c';
+import { api, DEMO } from './api.js?v=20261119d';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119c';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119d';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2176,6 +2176,7 @@ async function pageParty(cid) {
     el.innerHTML = `
       <div class="party-top">
         <a href="#/competition/${esc(c.id)}" class="party-back">←</a>
+        ${state.me.is_admin ? '<button type="button" class="party-back party-imgs" id="party-imgs" title="Mes images de soirée">🖼️</button>' : ''}
         <div><small>${running ? '<span class="live-dot"></span> EN DIRECT' : finished ? '🏁 TERMINÉ' : '🎉 SOIRÉE'}</small><h1>${esc(c.name)}</h1></div>
         <div class="party-clock" id="party-clock"></div>
       </div>
@@ -2188,7 +2189,15 @@ async function pageParty(cid) {
         <section class="pbox"><h2>🏆 Classement de la soirée</h2>
           ${rank.map(([u, n], i) => `<div class="prank r${i + 1}"><span>${['🥇', '🥈', '🥉'][i] || i + 1}</span>${avatarImg(who(u), 'av sm')}<b>${uname(who(u))}</b><em>${n} pts</em></div>`).join('') || '<p class="pempty">Pas encore de points.</p>'}</section>
       </div>`;
+    $('#party-imgs')?.addEventListener('click', () => partyImagesDialog(c, drawDeco));
     tick();
+  };
+  const drawDeco = () => {
+    const box = $('#party-deco'); if (!box) return;
+    box.innerHTML = (c.party_images || []).slice(0, PARTY_SPOTS.length).map((im, i) => {
+      const p = PARTY_SPOTS[i], size = { s: 70, m: 110, l: 160 }[im.size] || 110;
+      return `<img src="${esc(im.url)}" alt="" style="${p};width:${size}px;animation-duration:${(2.2 + (i % 3) * .5).toFixed(1)}s;animation-delay:${(i * .35).toFixed(2)}s">`;
+    }).join('');
   };
   const tick = () => {
     const ck = $('#party-clock'); if (ck) ck.textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -2199,7 +2208,8 @@ async function pageParty(cid) {
       cd.innerHTML = `${d ? `<span><b>${d}</b>j</span>` : ''}<span><b>${p(Math.floor(s / 3600))}</b>h</span><span><b>${p(Math.floor(s % 3600 / 60))}</b>min</span><span><b>${p(s % 60)}</b>s</span>`;
     }
   };
-  app.innerHTML = `<div class="party" id="party"></div>`;
+  app.innerHTML = `<div class="party party-wrap"><div class="party-deco" id="party-deco"></div><div id="party"></div></div>`;
+  drawDeco();
   await draw();
   // mises à jour en direct (+ filet de sécurité toutes les 20 s)
   const tours = (await safe(() => api.tournamentsOf(cid))) || [];
@@ -2207,6 +2217,40 @@ async function pageParty(cid) {
   const subs = tours.map(t => api.subscribe(t.id, () => { clearTimeout(tm); tm = setTimeout(draw, 500); }));
   unsubscribe = () => { subs.forEach(f => f && f()); partyTimers.forEach(clearInterval); partyTimers = []; };
   partyTimers.push(setInterval(tick, 1000), setInterval(draw, 20000));
+}
+
+// Images perso du mode soirée : elles « respirent » (grossissent / rétrécissent) sur les bords de l'écran
+const PARTY_SPOTS = ['left:-14px;top:70px', 'right:-14px;top:70px', 'left:-14px;bottom:30px', 'right:-14px;bottom:30px',
+  'left:-20px;top:42%', 'right:-20px;top:42%', 'left:38%;bottom:-18px', 'left:46%;top:-16px'];
+function partyImagesDialog(c, redraw) {
+  let list = [...(c.party_images || [])];
+  const box = openModal(`<h2>🖼️ Images de la soirée</h2>
+    <p class="small">Ajoute tes propres images (logo, mascotte, stickers…) : elles s'affichent autour de l'écran du mode soirée et grossissent / rétrécissent en rythme. 8 images maximum. Les PNG avec fond transparent rendent le mieux.</p>
+    <div class="pi-list" id="pi-list"></div>
+    <label class="btn ghost sm pi-add">📷 Ajouter une image<input type="file" id="pi-file" accept="image/*" hidden></label>
+    <div class="actions"><button type="button" class="btn ghost" data-close>Fermer</button><button type="button" class="btn primary" id="pi-save">Enregistrer</button></div>`);
+  const render = () => {
+    $('#pi-list', box).innerHTML = list.map((im, i) => `<div class="pi-row">
+      <img src="${esc(im.url)}" alt="">
+      <select data-size="${i}">${[['s', 'Petite'], ['m', 'Moyenne'], ['l', 'Grande']].map(([v, l]) => `<option value="${v}" ${(im.size || 'm') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button type="button" class="btn danger sm" data-del="${i}">✕</button></div>`).join('') || '<p class="empty">Aucune image pour l\'instant.</p>';
+    box.querySelectorAll('[data-size]').forEach(sel => sel.addEventListener('change', () => { list[+sel.dataset.size].size = sel.value; }));
+    box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { list.splice(+b.dataset.del, 1); render(); }));
+    $('.pi-add', box).style.display = list.length >= PARTY_SPOTS.length ? 'none' : '';
+  };
+  render();
+  $('#pi-file', box).addEventListener('change', e => safe(async () => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const png = file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp';
+    // les PNG/GIF/WebP gardent leur transparence ; les photos sont allégées
+    const up = png && file.size < 3e6 ? file : new File([await shrinkPhoto(file)], 'soiree.jpg', { type: 'image/jpeg' });
+    const url = await api.uploadImage(up, 'soiree');
+    list.push({ url, size: 'm' }); render(); e.target.value = '';
+  }));
+  $('#pi-save', box).addEventListener('click', () => safe(async () => {
+    await api.updateCompetition(c.id, { party_images: list });
+    c.party_images = list; closeModal(); toast('Images enregistrées'); redraw();
+  }));
 }
 
 // ---------- Carte de l'île ----------

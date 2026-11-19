@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119c';
+import { resolveBracket } from './bracket.js?v=20261119d';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -277,7 +277,7 @@ function demoApi() {
       { id: 't2', name: 'Tournoi de sabre', game: 'Wii Sports Resort – Duel', description: 'Double élimination : tout le monde a une seconde chance.', format: 'double', status: 'open', max_players: null, starts_at: null, bracket: null, winner_id: null, created_at: '2026-11-10' },
     ],
     participants: [],
-    competitions: [{ id: 'c1', name: 'Wuhu Contest 3', description: 'La grande journée de compétition de l\'île : 4 tournois !', image_url: null, starts_at: '2026-12-06T14:00:00Z', created_at: '2026-11-16' }],
+    competitions: [{ id: 'c1', name: 'Wuhu Contest 3', description: 'La grande journée de compétition de l\'île : 4 tournois !', image_url: null, starts_at: '2026-12-06T14:00:00Z', created_at: '2026-11-16', party_images: [{ url: demoImg(40, '🍄'), size: 'm' }, { url: demoImg(200, '⭐'), size: 'l' }, { url: demoImg(120, '🎮'), size: 's' }] }],
   };
   db.tournaments.forEach(t => { t.competition_id = 'c1'; });
   db.competitions.push({ id: 'c0', name: 'Wuhu Contest 2', description: null, image_url: null, starts_at: '2026-10-04T14:00:00Z', created_at: '2026-09-20' });
