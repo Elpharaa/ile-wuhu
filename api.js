@@ -135,6 +135,13 @@ async function supabaseApi() {
     myStats: async () => ok(await sb.rpc('wuhu_my_stats')),
     claimAchievement: async id => ok(await sb.rpc('wuhu_claim_achievement', { p_id: id })),
 
+    // Qui est sur le site en ce moment (présence en temps réel, rien n'est stocké)
+    presence(uid, cb) {
+      const ch = sb.channel('wuhu-ile', { config: { presence: { key: uid } } });
+      ch.on('presence', { event: 'sync' }, () => cb(Object.keys(ch.presenceState())))
+        .subscribe(async st => { if (st === 'SUBSCRIBED') await ch.track({ at: Date.now() }); });
+      return () => sb.removeChannel(ch);
+    },
     subscribe(tid, cb) {
       const ch = sb.channel('t-' + tid)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'wuhu_tournaments', filter: `id=eq.${tid}` }, cb)
@@ -383,6 +390,7 @@ function demoApi() {
       return { kind: it.kind, id: it.id, name: it.name, effect: it.effect, rarity: rar, duplicate: dup, refund };
     },
     subscribe(tid, cb) { subs.add(cb); return () => subs.delete(cb); },
+    presence(uid, cb) { setTimeout(() => cb([uid, 'u1', 'u2', 'u4', 'u6']), 300); return () => {}; },
   };
 }
 

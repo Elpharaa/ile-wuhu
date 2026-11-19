@@ -425,6 +425,7 @@ async function pageHome() {
       <div class="hero-money">${rubis(bal(me.id).rubis)} ${pts(bal(me.id).points)}</div>
     </section>
     <div id="daily-slot"></div>
+    ${islandMap()}
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -437,6 +438,7 @@ async function pageHome() {
       <div class="grid">${open.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi ouvert pour le moment.</p>'}</div>
     </section>` : ''}`;
   drawDaily();
+  drawIslanders();
 }
 
 
@@ -1541,6 +1543,52 @@ async function pageLeaderboard() {
   }));
 }
 
+// ---------- Carte de l'île ----------
+const MAP_SPOTS = [
+  { x: 48, y: 14, ic: '🏛️', label: 'Le Panthéon', sub: 'Les champions', href: '#/pantheon' },
+  { x: 56, y: 27, ic: '🌋', label: 'Le Volcan', sub: 'Classement', href: '#/classement' },
+  { x: 69, y: 37, ic: '🏟️', label: 'Le Stade', sub: 'Tournois', href: '#/tournois' },
+  { x: 25, y: 54, ic: '🏘️', label: 'Le Village', sub: 'Habitants', href: '#/membres' },
+  { x: 43, y: 72, ic: '⛵', label: 'Le Port', sub: 'Mes succès', href: '#/succes' },
+  { x: 80, y: 57, ic: '🏴‍☠️', label: 'La Plage', sub: 'Coffre au trésor', href: '#/boutique' },
+];
+// endroits sur la terre ferme où les habitants se promènent (en %)
+const MAP_LAND = [[28, 34], [42, 41], [23, 45], [54, 41], [60, 47], [74, 57], [86, 70], [80, 86], [13, 41], [36, 27], [49, 32], [64, 34], [86, 57], [89, 81], [30, 60], [45, 52], [70, 49], [22, 25], [40, 47], [82, 74]];
+function islandMap() {
+  return `<section class="island-sec">
+    <h2>🏝️ L'île Wuhu <small class="muted" id="online-count"></small></h2>
+    <div class="island-map" id="island-map">
+      <img src="ile-carte.svg" alt="Carte de l'île Wuhu" draggable="false">
+      <div class="isl-people" id="isl-people"></div>
+      ${MAP_SPOTS.map(p => `<a href="${p.href}" class="spot" style="left:${p.x}%;top:${p.y}%"><span class="spot-ic">${p.ic}</span><span class="spot-lb"><b>${p.label}</b><small>${p.sub}</small></span></a>`).join('')}
+    </div>
+  </section>`;
+}
+let walkTimer = null;
+async function drawIslanders() {
+  const box = $('#isl-people'); if (!box) return;
+  const ids = [...(state.online || new Set([state.me.id]))];
+  if (!state.people || ids.some(id => !state.people.has(id))) {
+    state.people = new Map(((await safe(() => api.listMembers())) || []).map(p => [p.id, p]));
+    if (!$('#isl-people')) return;
+  }
+  const people = ids.map(id => state.people.get(id)).filter(Boolean).slice(0, 30);
+  const c = $('#online-count'); if (c) c.textContent = `· ${people.length} habitant${people.length > 1 ? 's' : ''} sur l'île en ce moment`;
+  const pick = () => MAP_LAND[Math.floor(Math.random() * MAP_LAND.length)];
+  const have = new Set([...box.children].map(e => e.dataset.id));
+  people.forEach((p, i) => {
+    if (have.has(p.id)) return;
+    const [x, y] = MAP_LAND[(i * 7) % MAP_LAND.length];
+    box.insertAdjacentHTML('beforeend', `<a href="#/profil/${esc(p.id)}" class="isl-mii ${p.id === state.me.id ? 'me' : ''}" data-id="${esc(p.id)}" style="left:${x}%;top:${y}%;--d:${(i % 5) * .3}s" title="${esc(p.username)}">${avatarImg(p, 'av sm')}<span>${esc(p.username)}</span></a>`);
+  });
+  [...box.children].forEach(e => { if (!people.some(p => p.id === e.dataset.id)) e.remove(); });
+  clearInterval(walkTimer);
+  walkTimer = setInterval(() => {
+    const b = $('#isl-people'); if (!b) return clearInterval(walkTimer);
+    [...b.children].forEach(e => { if (Math.random() < .5) { const [x, y] = pick(); e.style.left = x + (Math.random() * 4 - 2) + '%'; e.style.top = y + (Math.random() * 4 - 2) + '%'; } });
+  }, 4500);
+}
+
 // ---------- Panthéon : un champion par compétition terminée ----------
 async function pagePantheon() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
@@ -2055,6 +2103,8 @@ async function pageSettings(tab = 'fond') {
   state.me = me;
   if (state.me?.in_guild) await Promise.all([loadRoles(), loadColors(), loadBalances()]);
   refreshAchCount();
+  // présence : qui est sur le site en ce moment
+  if (state.me?.in_guild && api.presence) api.presence(state.me.id, ids => { state.online = new Set(ids); drawIslanders(); });
   if (state.me?.is_admin) settlePending();
   window.addEventListener('hashchange', route);
   route();
