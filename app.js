@@ -301,6 +301,7 @@ function renderNav() {
          <div class="me-menu" id="me-menu" hidden>
            <a href="#/profil/${esc(me.id)}" class="${sub('#/profil/' + me.id)}">${avatar(me, 'av xs')} Mon profil</a>
            <a href="#/pantheon" class="${sub('#/pantheon')}">🏛️ Panthéon</a>
+           <a href="#/quiz" class="${sub('#/quiz')}">🧠 Quiz du jour</a>
            <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès${state.achCount ? `<span class="notif in">${state.achCount}</span>` : ''}</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
            <a href="#/roles" class="${sub('#/roles')}">🎖️ Rôles</a>
@@ -342,6 +343,7 @@ async function route() {
     case 'boutique': return pageShop();
     case 'succes': return pageAchievements();
     case 'pantheon': return pagePantheon();
+    case 'quiz': return pageQuiz();
     case 'soiree': return pageParty(parts[1]);
     case 'parametres': return state.me.is_admin ? pageSettings() : pageHome();
     default: return pageHome();
@@ -427,6 +429,7 @@ async function pageHome() {
     </section>
     ${partyBanner(liveComps)}
     <div id="daily-slot"></div>
+    <div id="quiz-slot"></div>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, people.get(x.opp) || { username: '?' })).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -439,6 +442,7 @@ async function pageHome() {
       <div class="grid">${open.map(tournamentCard).join('') || '<p class="empty">Aucun tournoi ouvert pour le moment.</p>'}</div>
     </section>` : ''}`;
   drawDaily();
+  drawQuiz();
 }
 
 
@@ -1546,6 +1550,109 @@ async function pageLeaderboard() {
     app.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     draw(by[b.dataset.k]);
   }));
+}
+
+// ---------- Quiz Nintendo du jour ----------
+async function quizCard(q) {
+  const mine = await safe(() => api.myQuizAnswer(q.id, state.me.id));
+  const res = mine ? await safe(() => api.quizResult(q.id)) : null;
+  const L = 'ABCD';
+  return `<div class="quiz-q">${esc(q.question)}</div>
+    ${q.image_url ? `<img class="quiz-img" src="${esc(q.image_url)}" alt="">` : ''}
+    <div class="quiz-ch ${mine ? 'answered' : ''}">${q.choices.map((c, i) => {
+      const cls = mine ? (i === res?.answer ? 'good' : i === mine.choice ? 'bad' : '') : '';
+      return `<button class="qc ${cls}" data-qc="${i}" ${mine ? 'disabled' : ''}><b>${L[i]}</b>${esc(c)}</button>`;
+    }).join('')}</div>
+    ${mine ? `<p class="quiz-res ${mine.correct ? 'ok' : 'ko'}">${mine.correct ? `🎉 Bonne réponse ! +${q.reward} ${I.rubis}` : '😅 Raté ! Retente ta chance demain.'}
+      ${res?.total ? `<small>${res.good} sur ${res.total} ont trouvé (${Math.round(100 * res.good / res.total)} %)</small>` : ''}</p>`
+      : `<p class="small">Une seule réponse possible : réfléchis bien ! Bonne réponse = ${rubis(q.reward)}</p>`}`;
+}
+async function drawQuiz(slotSel = '#quiz-slot') {
+  const slot = $(slotSel); if (!slot || !api.quizByDay) return;
+  const q = await safe(() => api.quizByDay(parisDay()));
+  if (!q) { slot.innerHTML = ''; return; }
+  slot.innerHTML = `<section class="card quiz-card"><div class="quiz-head"><h2>🧠 Quiz du jour</h2><a href="#/quiz" class="small">Classement →</a></div><div id="quiz-body">${await quizCard(q)}</div></section>`;
+  slot.querySelectorAll('[data-qc]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    slot.querySelectorAll('[data-qc]').forEach(x => (x.disabled = true));
+    const r = await api.quizAnswer(q.id, Number(b.dataset.qc));
+    if (r.correct) { burst(b); toast(`Bonne réponse ! +${r.reward} rubis`); await loadBalances(); renderNav(); }
+    else toast('Raté !', 'err');
+    drawQuiz(slotSel);
+  })));
+}
+async function pageQuiz() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const me = state.me;
+  const [board, members] = await Promise.all([safe(() => api.quizBoard()), safe(() => api.listMembers())]);
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const month = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'Europe/Paris' });
+  app.innerHTML = `
+    <div class="page-head"><h1>🧠 Quiz du jour</h1></div>
+    <div id="quiz-page-slot"></div>
+    <section>
+      <h2>Classement de ${esc(month)}</h2>
+      <div class="lb-table">${(board || []).filter(r => people.has(r.user_id)).map((r, i) => `
+        <a href="#/profil/${esc(r.user_id)}" class="lb-row ${r.user_id === me.id ? 'me-row' : ''}">
+          <span class="lb-rank">${[I.medal1, I.medal2, I.medal3][i] || i + 1}</span>${avatar(people.get(r.user_id), 'av sm')}
+          <span class="lb-name">${uname(people.get(r.user_id))}</span><b>${r.good} ✓</b><small class="muted">/ ${r.played}</small>
+        </a>`).join('') || '<p class="empty">Personne n\'a encore joué ce mois-ci.</p>'}</div>
+    </section>
+    ${me.is_admin ? '<section id="quiz-admin"></section>' : ''}`;
+  await drawQuiz('#quiz-page-slot');
+  if (!$('#quiz-page-slot').innerHTML) $('#quiz-page-slot').innerHTML = '<p class="empty">Pas de question aujourd\'hui. Reviens demain !</p>';
+  if (me.is_admin) drawQuizAdmin();
+}
+async function drawQuizAdmin() {
+  const box = $('#quiz-admin'); if (!box) return;
+  const list = (await safe(() => api.quizList())) || [];
+  const today = parisDay();
+  const next = (() => { const used = new Set(list.map(q => q.day)); let d = new Date(); for (;;) { const s = parisDay(d); if (!used.has(s)) return s; d = new Date(+d + 864e5); } })();
+  const keyOf = q => (Array.isArray(q.key) ? q.key[0] : q.key)?.answer;
+  const upcoming = list.filter(q => q.day >= today).sort((a, b) => a.day.localeCompare(b.day));
+  const past = list.filter(q => q.day < today);
+  const row = q => `<div class="qa-row ${q.day === today ? 'today' : ''}">
+      <span class="qa-day">${q.day === today ? 'Aujourd\'hui' : new Date(q.day + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+      <span class="qa-q">${esc(q.question)}<small>✓ ${esc(q.choices[keyOf(q)] ?? '?')} · ${q.reward} rubis</small></span>
+      ${q.day >= today ? `<button class="btn ghost sm" data-qedit="${esc(q.id)}">Modifier</button>` : ''}
+      <button class="btn danger sm" data-qdel="${esc(q.id)}">✕</button></div>`;
+  box.innerHTML = `
+    <div class="page-head"><h2>Gérer les questions <span class="admin-label">Admin</span></h2><button class="btn primary sm" id="q-add">+ Nouvelle question</button></div>
+    <p class="small">Une question par jour. Les membres ne voient une question que le jour J, et la bonne réponse reste secrète.
+    ${upcoming.length ? `Questions prévues jusqu'au <b>${esc(new Date(upcoming.at(-1).day + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</b>.` : '<b>Aucune question prévue : pense à en ajouter !</b>'}</p>
+    <div class="qa-list">${upcoming.map(row).join('')}</div>
+    ${past.length ? `<details class="qa-past"><summary>Questions passées (${past.length})</summary><div class="qa-list">${past.map(row).join('')}</div></details>` : ''}`;
+  const form = q => {
+    const ch = q?.choices || ['', '', '', ''];
+    const ans = q ? keyOf(q) : 0;
+    const f = openModal(`
+      <h2>${q ? 'Modifier la question' : 'Nouvelle question'}</h2>
+      <div class="form qf">
+      <label>Jour<input type="date" id="qf-day" value="${esc(q?.day || next)}" min="${today}"></label>
+      <label>Question<textarea id="qf-q" rows="2" maxlength="300" placeholder="Ex : Quel est le premier jeu où apparaît Wario ?">${esc(q?.question || '')}</textarea></label>
+      <p class="small">Réponses (2 à 4) : coche la bonne.</p>
+      ${[0, 1, 2, 3].map(i => `<div class="qf-ch"><input type="radio" name="qf-ok" value="${i}" ${i === ans ? 'checked' : ''}><input type="text" id="qf-c${i}" maxlength="120" placeholder="Réponse ${'ABCD'[i]}${i > 1 ? ' (facultatif)' : ''}" value="${esc(ch[i] || '')}"></div>`).join('')}
+      <label>Rubis pour une bonne réponse<input type="number" id="qf-r" min="0" max="500" value="${q?.reward ?? 10}"></label>
+      </div>
+      <div class="actions"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="qf-save">Enregistrer</button></div>`);
+    $('#qf-save', f).addEventListener('click', () => safe(async () => {
+      const raw = [0, 1, 2, 3].map(i => $('#qf-c' + i, f).value.trim());
+      const okIdx = Number(f.querySelector('[name=qf-ok]:checked')?.value ?? 0);
+      if (!raw[okIdx]) return toast('La bonne réponse cochée est vide', 'err');
+      const keep = raw.map((c, i) => [c, i]).filter(([c]) => c);
+      if (keep.length < 2) return toast('Il faut au moins 2 réponses', 'err');
+      const question = $('#qf-q', f).value.trim();
+      if (question.length < 3) return toast('Écris la question', 'err');
+      await api.quizSave({ id: q?.id, day: $('#qf-day', f).value, question, choices: keep.map(([c]) => c),
+        answer: keep.findIndex(([, i]) => i === okIdx), reward: Number($('#qf-r', f).value) || 0 });
+      closeModal(); toast('Question enregistrée'); drawQuizAdmin(); drawQuiz('#quiz-page-slot');
+    }));
+  };
+  $('#q-add', box).addEventListener('click', () => form(null));
+  box.querySelectorAll('[data-qedit]').forEach(b => b.addEventListener('click', () => form(list.find(q => q.id === b.dataset.qedit))));
+  box.querySelectorAll('[data-qdel]').forEach(b => b.addEventListener('click', () => safe(async () => {
+    if (!confirm('Supprimer cette question (et les réponses déjà données) ?')) return;
+    await api.quizDelete(b.dataset.qdel); toast('Question supprimée'); drawQuizAdmin();
+  })));
 }
 
 // ---------- Photos des events ----------

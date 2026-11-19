@@ -91,6 +91,15 @@ async function supabaseApi() {
       return files.filter(f => f.id).map(f => ({ name: f.name, path: 'galerie/' + f.name, url: sb.storage.from('wuhu').getPublicUrl('galerie/' + f.name).data.publicUrl }));
     },
     deleteImage: async path => ok(await sb.storage.from('wuhu').remove([path])),
+    // ----- Quiz du jour -----
+    quizByDay: async day => ok(await sb.from('wuhu_quiz_questions').select('*').eq('day', day).maybeSingle()),
+    myQuizAnswer: async (qid, uid) => ok(await sb.from('wuhu_quiz_answers').select('*').eq('question_id', qid).eq('user_id', uid).maybeSingle()),
+    quizAnswer: async (qid, choice) => ok(await sb.rpc('wuhu_quiz_answer', { p_question: qid, p_choice: choice })),
+    quizResult: async qid => ok(await sb.rpc('wuhu_quiz_result', { p_question: qid })),
+    quizBoard: async () => ok(await sb.rpc('wuhu_quiz_board')),
+    quizList: async () => ok(await sb.from('wuhu_quiz_questions').select('*, key:wuhu_quiz_keys(answer)').order('day', { ascending: false })),
+    quizSave: async q => ok(await sb.rpc('wuhu_quiz_save', { p_id: q.id || null, p_day: q.day, p_question: q.question, p_choices: q.choices, p_answer: q.answer, p_reward: q.reward, p_image: q.image_url || null })),
+    quizDelete: async id => ok(await sb.from('wuhu_quiz_questions').delete().eq('id', id)),
     // ----- Photos des events (envoyées par les membres) -----
     listPhotos: async cid => ok(await sb.from('wuhu_photos').select('*, likes:wuhu_photo_likes(user_id)').eq('competition_id', cid).order('created_at', { ascending: false })),
     async addPhoto(cid, uid, blob, caption) {
@@ -222,6 +231,12 @@ function demoApi() {
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
+  const dayStr = d => new Date(Date.now() + d * 864e5).toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
+  let quiz = [
+    { id: 'q1', day: dayStr(0), question: 'Dans Wii Sports Resort, comment s\'appelle l\'île où se déroulent les sports ?', choices: ['Isle Delfino', 'L\'île Wuhu', 'L\'île Pikmin', 'Koholint'], reward: 10, key: { answer: 1 } },
+    { id: 'q2', day: dayStr(1), question: 'Quel est le vrai nom de Toad ?', choices: ['Toad', 'Kinopio', 'Toadsworth'], reward: 15, key: { answer: 0 } },
+  ];
+  let quizAns = [];
   const demoImg = (h, e) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${h},70%,60%)"/><text x="200" y="175" font-size="90" text-anchor="middle">${e}</text></svg>`);
   let photos = [['🎳', 200, 'La finale de bowling !', ['u1', 'u2', 'u3']], ['🍕', 30, 'Pause pizza', ['u2']], ['🏆', 50, 'Les champions', ['u1', 'u2', 'u3', 'u4', 'u5']], ['🎮', 260, null, []], ['🎾', 120, 'Match serré', ['u4']]]
     .map(([e, h, caption, likes], i) => ({ id: 'ph' + i, competition_id: 'c1', user_id: 'u' + (i + 1), path: 'x', url: demoImg(h, e), caption, created_at: new Date(Date.now() - i * 3e6).toISOString(), likes: likes.map(user_id => ({ user_id })) }));
@@ -298,6 +313,22 @@ function demoApi() {
       return url;
     },
     async listGallery() { return clone(gallery); },
+    async quizByDay(day) { const q = quiz.find(x => x.day === day); return q ? { ...clone(q), key: undefined } : null; },
+    async myQuizAnswer(qid, uid) { return clone(quizAns.find(a => a.question_id === qid && a.user_id === uid) || null); },
+    async quizAnswer(qid, choice) {
+      const q = quiz.find(x => x.id === qid); const ok2 = choice === q.key.answer;
+      quizAns.push({ question_id: qid, user_id: me.id, choice, correct: ok2 });
+      if (ok2) addL(me.id, q.reward, 0, 'Quiz du jour : bonne réponse');
+      return { correct: ok2, answer: q.key.answer, reward: ok2 ? q.reward : 0, total: 7, good: 4 };
+    },
+    async quizResult(qid) { const q = quiz.find(x => x.id === qid); return { answer: q.key.answer, total: 7, good: 4 }; },
+    async quizBoard() { return [{ user_id: 'u2', good: 12, played: 14 }, { user_id: 'u1', good: 10, played: 15 }, { user_id: 'u0', good: 7, played: 9 }, { user_id: 'u5', good: 3, played: 8 }]; },
+    async quizList() { return clone(quiz); },
+    async quizSave(q) {
+      const x = { id: q.id || 'q' + Date.now(), day: q.day, question: q.question, choices: q.choices, reward: q.reward, image_url: q.image_url, key: { answer: q.answer } };
+      quiz = quiz.filter(y => y.id !== x.id); quiz.push(x); return x.id;
+    },
+    async quizDelete(id) { quiz = quiz.filter(q => q.id !== id); },
     async listPhotos(cid) { return clone(photos.filter(p => p.competition_id === cid)); },
     async addPhoto(cid, uid, blob, caption) {
       const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
