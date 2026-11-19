@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120b';
+import { api, DEMO } from './api.js?v=20261120c';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120b';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120c';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -1777,7 +1777,7 @@ async function pageLeaderboard() {
   app.innerHTML = `<div class="loading">Chargement…</div>`;
   const [members] = await Promise.all([safe(() => api.listMembers()), loadBalances()]);
   const list = (members || []).map(m => ({ ...m, ...bal(m.id) }));
-  const by = { points: 'points', rubis: 'rubis', season: 'season' };
+  const by = { points: 'points', season: 'season' };
   const [board, past] = await Promise.all([safe(() => api.seasonBoard?.()), safe(() => api.seasons?.())]);
   const sPts = new Map((board || []).map(r => [r.user_id, r.points]));
   const people = new Map(list.map(m => [m.id, m]));
@@ -1793,7 +1793,7 @@ async function pageLeaderboard() {
           <a href="#/profil/${esc(podium[i].id)}" class="podium-step p${i + 1}">
             ${avatar(podium[i], 'av lg')}
             <strong>${uname(podium[i])}</strong>
-            ${key === 'points' ? pts(podium[i].points) : rubis(podium[i].rubis)}
+            ${pts(podium[i].points)}
             <div class="step">${[I.medal1, I.medal2, I.medal3][i]}</div>
           </a>` : '<div></div>').join('')}
       </div>
@@ -1803,7 +1803,7 @@ async function pageLeaderboard() {
             <span class="lb-rank">${i + 4}</span>
             ${avatar(m, 'av sm')}
             <span class="lb-name">${uname(m)}</span>
-            ${pts(m.points)} ${rubis(m.rubis)}
+            ${pts(m.points)}
           </a>`).join('') || (sorted.length ? '' : '<p class="empty">Personne pour l\'instant.</p>')}
       </div>`;
   };
@@ -1837,7 +1837,7 @@ async function pageLeaderboard() {
   };
   app.innerHTML = `
     <div class="page-head"><h1>Classement</h1>
-      <div class="seg"><button class="on" data-k="season">🗓️ Saison</button><button data-k="points">${I.points} Points</button><button data-k="rubis">${I.rubis} Rubis</button></div>
+      <div class="seg"><button class="on" data-k="season">🗓️ Saison</button><button data-k="points">${I.points} Points (total)</button></div>
     </div>
     <p class="small">On gagne des points et des rubis en participant aux tournois, en gagnant des matchs et grâce aux events des admins.</p>
     <a href="#/pantheon" class="pantheon-link">🏛️ <span><b>Panthéon de Wuhu</b><small>Les champions de chaque compétition</small></span> →</a>
