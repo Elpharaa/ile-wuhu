@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261119n';
+import { resolveBracket } from './bracket.js?v=20261119p';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -310,7 +310,7 @@ function demoApi() {
   let demoRoom = null; const roomSubs = new Set(); const roomPing = () => roomSubs.forEach(f => f());
   const demoRound = () => { const r = demoRoom; r.round_started_at = new Date(Date.now() + 3000).toISOString(); r.round_closed = false; r.round_winner = null; roomPing();
     const i = r.idx; setTimeout(() => { if (r.idx !== i || r.round_closed) return; r.tries.push({ idx: i, user_id: 'u4', correct: false }); roomPing(); }, 5500);
-    setTimeout(() => { if (r.idx !== i || r.round_closed) return; if (i % 2) { r.tries.push({ idx: i, user_id: 'u2', correct: true }); r.players.find(p => p.user_id === 'u2').score++; r.round_closed = true; r.round_winner = 'u2'; roomPing(); } }, 7000); };
+    setTimeout(() => { if (r.idx !== i || r.round_closed) return; if (i % 2) { r.tries.push({ idx: i, user_id: 'u2', correct: true }); if (!r.round_winner) { r.players.find(p => p.user_id === 'u2').score++; r.round_winner = 'u2'; } roomPing(); } }, 7000); };
   const btTracks = [
     { id: 'bt1', day: parisDayDemo(), youtube_id: 'aaaaaaaaaaa', start_s: 12, duration_s: 20, reward: 15, choices: ['Super Mario Galaxy', 'Super Mario 64', 'Super Mario Sunshine', 'Super Mario Odyssey'],
       key: { answer: 0, title: 'Gusty Garden Galaxy · Super Mario Galaxy', explanation: 'Composée par Mahito Yokota, c\'est l\'un des thèmes les plus célèbres de la série.' } },
@@ -468,7 +468,7 @@ function demoApi() {
       return clone({ room: { ...r, players: undefined, tries: undefined, tracks: undefined }, now: new Date().toISOString(), count: r.tracks.length,
         track: t && { id: t.id, youtube_id: t.youtube_id, start_s: t.start_s, duration_s: 8, choices: t.choices }, players: [...r.players].sort((a, b) => b.score - a.score), tries: r.tries.filter(x => x.idx === r.idx) }); },
     async btRoomAnswer(id, idx, choice) { const r = demoRoom, t = btTracks.find(x => x.id === r.tracks[idx]); if (r.round_closed) return { late: true };
-      const ok = choice === t.key.answer; r.tries.push({ idx, user_id: 'u0', correct: ok }); if (ok) { r.players.find(p => p.user_id === 'u0').score++; r.round_closed = true; r.round_winner = 'u0'; } roomPing(); return { correct: ok, secs: 2.4 }; },
+      const ok = choice === t.key.answer; r.tries.push({ idx, user_id: 'u0', correct: ok }); const first = ok && !r.round_winner; if (first) { r.players.find(p => p.user_id === 'u0').score++; r.round_winner = 'u0'; } roomPing(); return { correct: ok, first, winner: r.round_winner, secs: 2.4 }; },
     async btRoomReveal(id, idx) { const r = demoRoom, t = btTracks.find(x => x.id === r.tracks[idx]); r.round_closed = true; return { answer: t.key.answer, title: t.key.title, winner: r.round_winner }; },
     async btRoomNext(id, idx) { const r = demoRoom; if (r.idx !== idx || r.status !== 'playing') return; if (r.idx + 1 < r.tracks.length) { r.idx++; demoRound(); }
       else { r.status = 'done'; r.rewards = [...r.players].sort((a, b) => b.score - a.score).slice(0, 3).map((p, i) => ({ user_id: p.user_id, rank: i + 1, rubis: [15, 8, 4][i] })); roomPing(); } },

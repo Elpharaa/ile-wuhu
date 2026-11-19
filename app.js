@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119n';
+import { api, DEMO } from './api.js?v=20261119p';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119n';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119p';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2948,7 +2948,7 @@ async function pageBtRoom(arg) {
       const m = who(p.user_id), t = tries.get(p.user_id);
       return `<div class="bt-pl ${p.user_id === state.me.id ? 'me' : ''} ${st.room.round_winner === p.user_id ? 'win' : ''}">
         <span class="bt-pl-r">${st.room.status === 'lobby' ? '' : i + 1}</span>${avatar(m, 'av sm')}<span class="bt-pl-n">${uname(m)}${p.user_id === st.room.host ? ' 👑' : ''}</span>
-        ${st.room.status === 'lobby' ? '' : `<b>${p.score}</b>`}${t ? `<span class="bt-pl-t">${t.correct ? '⚡' : '❌'}</span>` : ''}</div>`;
+        ${st.room.status === 'lobby' ? '' : `<b>${p.score}</b>`}${t ? `<span class="bt-pl-t">${st.room.round_winner === p.user_id ? '⚡' : t.correct ? '✅' : '❌'}</span>` : ''}</div>`;
     }).join('');
   };
   const render = () => {
@@ -2963,7 +2963,7 @@ async function pageBtRoom(arg) {
       body.innerHTML = `<div class="bt-lobby">
         <p>Partage le code <b class="bt-big">${esc(r.code)}</b> ou le lien pour inviter tes amis :</p>
         <div class="bt-link"><input readonly value="${esc(link)}"><button class="btn ghost sm" id="r-copy">📋 Copier</button></div>
-        <p class="small">${r.total} musiques · 20 s par extrait · une seule réponse par musique · 🥇 +15 💎 🥈 +8 🥉 +4 (3 parties récompensées par jour)</p>
+        <p class="small">${r.total} musiques · 20 s par extrait · une seule réponse par musique · seul le plus rapide marque le point · 🥇 +15 💎 🥈 +8 🥉 +4 (3 parties récompensées par jour)</p>
         ${ready ? '<p class="bt-ready">✅ Son activé, tu es prêt !</p>' : '<button class="btn primary big" id="r-ready">🔊 Je suis prêt (activer le son)</button>'}
         ${host ? `<button class="btn primary big" id="r-start" ${st.players.length < 2 ? 'disabled' : ''}>▶️ Lancer la partie ${st.players.length < 2 ? '(il faut 2 joueurs)' : `(${st.players.length} joueurs)`}</button>` : '<p class="muted">L\'hôte 👑 lancera la partie quand tout le monde est là.</p>'}
       </div>`;
@@ -3016,7 +3016,8 @@ async function pageBtRoom(arg) {
         later(() => { stopAudio(); doReveal(); }, t.duration_s * 1000);
       }, startAt - Date.now());
     }
-    if (st.room.round_closed && !revealed) doReveal();
+    // l'extrait est toujours joué en entier : on ne dévoile la réponse qu'une fois le temps écoulé
+    if (!revealed && serverNow() >= new Date(r.round_started_at).getTime() + t.duration_s * 1000) doReveal();
     drawChoices();
   };
   const drawChoices = () => {
@@ -3027,14 +3028,16 @@ async function pageBtRoom(arg) {
       ${btChoices(t, ans != null ? { picked: myTry?.choice ?? null, answer: ans } : {})}
       <div class="bt-room-res">${revealed ? `${revealed.winner ? `⚡ <b>${uname(who(revealed.winner))}</b> a trouvé !` : '⏱️ Personne n\'a trouvé…'}
         ${revealed.title ? `<p class="bt-title">🎶 ${esc(revealed.title)}</p>` : ''}<small class="muted">${st.room.idx + 1 < st.count ? 'Musique suivante dans un instant…' : 'Résultats dans un instant…'}</small>`
-        : myTry ? (myTry.correct ? '🎉 <b>Bonne réponse !</b> +1 point' : '❌ Raté ! Attends la musique suivante…') : started ? '' : '<small class="muted">Prépare-toi…</small>'}</div>`;
+        : myTry ? (myTry.correct ? (st.room.round_winner === state.me.id || myTry.first ? '🎉 <b>Bonne réponse, tu es le premier !</b> +1 point ⚡' : `✅ Bonne réponse… mais <b>${uname(who(st.room.round_winner))}</b> a été plus rapide !`) : '❌ Raté ! Profite de la fin de l\'extrait…')
+          : st.room.round_winner ? `<small>⚡ <b>${uname(who(st.room.round_winner))}</b> a déjà trouvé… mais tu peux encore répondre !</small>` : started ? '' : '<small class="muted">Prépare-toi…</small>'}</div>`;
     if (ans == null && !myTry) body.querySelectorAll('[data-bt]').forEach(b => b.addEventListener('click', () => safe(async () => {
       if (serverNow() < new Date(st.room.round_started_at).getTime()) return toast('Attends le début de l\'extrait !', 'err');
       body.querySelectorAll('[data-bt]').forEach(x => (x.disabled = true));
       const res = await api.btRoomAnswer(roomId, st.room.idx, Number(b.dataset.bt));
       if (res?.late) { toast('Trop tard !', 'err'); return; }
-      myTry = { choice: Number(b.dataset.bt), correct: res.correct };
-      if (res.correct) burst(b);
+      myTry = { choice: Number(b.dataset.bt), correct: res.correct, first: res.first };
+      if (res.winner && !st.room.round_winner) st.room.round_winner = res.winner;
+      if (res.first) burst(b);
       drawChoices();
     })));
     else body.querySelectorAll('[data-bt]').forEach(x => (x.disabled = true));
