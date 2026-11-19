@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261119g';
+import { api, DEMO } from './api.js?v=20261119h';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119g';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261119h';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -1877,7 +1877,26 @@ async function drawQuiz(slotSel = '#quiz-slot') {
   const slot = $(slotSel); if (!slot || !api.quizByDay) return;
   const q = await safe(() => api.quizByDay(parisDay()));
   if (!q) { slot.innerHTML = ''; return; }
-  slot.innerHTML = `<section class="card quiz-card"><div class="quiz-head"><h2>🧠 Quiz du jour</h2><a href="#/quiz" class="small">Classement →</a></div><div id="quiz-body">${await quizCard(q)}</div></section>`;
+  const body = await quizCard(q);
+  // Sur l'accueil, la carte peut être repliée (repliée d'office une fois la question répondue)
+  const home = slotSel === '#quiz-slot', key = 'wuhu-quizfold-' + q.id;
+  const answered = /class="quiz-res (ok|ko)"/.exec(body);
+  let saved = null; try { saved = localStorage.getItem(key); } catch {}
+  const folded = home && (saved ? saved === '1' : !!answered);
+  const summary = answered ? (answered[1] === 'ok' ? `✅ Bonne réponse aujourd'hui ! +${q.reward} ${I.rubis}` : '😅 Raté aujourd\'hui… retente demain !')
+    : `❓ Une nouvelle question t'attend · ${rubis(q.reward)}`;
+  slot.innerHTML = `<section class="card quiz-card ${folded ? 'folded' : ''}"><div class="quiz-head"><h2>🧠 Quiz du jour</h2>
+    <span class="quiz-tools"><a href="#/quiz" class="small">Classement →</a>${home ? `<button type="button" class="quiz-fold" aria-expanded="${!folded}" title="${folded ? 'Afficher' : 'Masquer'} la question">${folded ? 'Afficher ▾' : 'Masquer ▴'}</button>` : ''}</span></div>
+    ${home ? `<button type="button" class="quiz-sum">${summary}</button>` : ''}
+    <div id="quiz-body">${body}</div></section>`;
+  const card = $('.quiz-card', slot);
+  const setFold = f => {
+    card.classList.toggle('folded', f);
+    const t = $('.quiz-fold', card); if (t) { t.textContent = f ? 'Afficher ▾' : 'Masquer ▴'; t.setAttribute('aria-expanded', String(!f)); }
+    try { localStorage.setItem(key, f ? '1' : '0'); } catch {}
+  };
+  $('.quiz-fold', card)?.addEventListener('click', () => setFold(!card.classList.contains('folded')));
+  $('.quiz-sum', card)?.addEventListener('click', () => setFold(false));
   slot.querySelectorAll('[data-qc]').forEach(b => b.addEventListener('click', () => safe(async () => {
     slot.querySelectorAll('[data-qc]').forEach(x => (x.disabled = true));
     const r = await api.quizAnswer(q.id, Number(b.dataset.qc));
