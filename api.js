@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261120f';
+import { resolveBracket } from './bracket.js?v=20261120g';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -597,7 +597,7 @@ function demoApi() {
       const today = new Date().toISOString().slice(0, 10), y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
       if (daily?.last_claim === today) throw new Error("Déjà récupérée aujourd'hui, reviens demain !");
       const streak = daily?.last_claim === y ? daily.streak + 1 : 1;
-      const amount = [5, 5, 10, 10, 15, 15, 30][(streak - 1) % 7];
+      const amount = [20, 20, 30, 30, 40, 40, 100][(streak - 1) % 7];
       daily = { user_id: me.id, last_claim: today, streak, best_streak: Math.max(streak, daily?.best_streak || 0) };
       addL(me.id, amount, 0, `Récompense du jour (jour ${streak})`); return { streak, amount };
     },

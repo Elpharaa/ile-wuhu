@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120f';
+import { api, DEMO } from './api.js?v=20261120g';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120f';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120g';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -2609,7 +2609,7 @@ async function pagePantheon() {
 }
 
 // ---------- Récompense du jour ----------
-const DAILY = [5, 5, 10, 10, 15, 15, 30];
+const DAILY = [20, 20, 30, 30, 40, 40, 100];
 const parisDay = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 async function drawDaily() {
   const slot = $('#daily-slot'); if (!slot) return;
