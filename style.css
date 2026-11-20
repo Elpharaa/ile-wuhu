@@ -1729,39 +1729,110 @@ footer a.foot-discord:hover { transform: translateY(-2px); box-shadow: 0 10px 24
 @media (max-width: 640px) { .scene { aspect-ratio: 4 / 5; } .sw-body { left: -21px; top: -48px; width: 42px; height: 42px; } .sw-body .av { width: 42px; height: 42px; } .sw-bubble { top: -82px; } }
 @media (prefers-reduced-motion: reduce) { .sw .sw-body { animation: none !important; } }
 
-/* ---------- Écran « piste de danse » : avatars en gros plan ---------- */
+/* ---------- Écran « piste de danse » : danseurs avec un corps, chorégraphie ---------- */
 .scene-dance { position: absolute; inset: 0; z-index: 2; display: none; }
 .scene.mode-dance .scene-dance { display: block; }
 .scene.mode-dance .scene-folk, .scene.mode-dance .scene-floor { display: none; }
-.scene.mode-dance.no-bg { background: radial-gradient(circle at 50% 110%, #ff3fa4 0%, #7a2fd1 35%, #1a0f3a 70%, #0a0618 100%); }
+.scene.mode-dance.no-bg { background: radial-gradient(ellipse at 50% 120%, #ff3fa4 0%, #7a2fd1 38%, #1a0f3a 72%, #0a0618 100%); }
+.scene.mode-dance.no-bg::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 22%; pointer-events: none;
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 12.5%, rgba(255,63,164,.12) 12.5% 25%); transform: perspective(300px) rotateX(55deg); transform-origin: bottom; animation: dzFloor 1s steps(2) infinite; }
+@keyframes dzFloor { 50% { filter: hue-rotate(120deg) brightness(1.3); } }
 .dz-lights { position: absolute; inset: 0; overflow: hidden; pointer-events: none; mix-blend-mode: screen; }
 .dz-lights i { position: absolute; top: -10%; left: 50%; width: 22%; height: 130%; transform-origin: 50% 0; opacity: .35; filter: blur(6px);
-  background: linear-gradient(180deg, rgba(255,255,255,.9), transparent 75%); clip-path: polygon(45% 0, 55% 0, 100% 100%, 0 100%); animation: dzBeam 4s ease-in-out infinite alternate; }
-.dz-lights i:nth-child(1) { background-color: transparent; --c: #ff3fa4; background: linear-gradient(180deg, #ff3fa4, transparent 75%); animation-duration: 3s; }
+  clip-path: polygon(45% 0, 55% 0, 100% 100%, 0 100%); animation: dzBeam 4s ease-in-out infinite alternate; }
+.dz-lights i:nth-child(1) { background: linear-gradient(180deg, #ff3fa4, transparent 75%); animation-duration: 3s; }
 .dz-lights i:nth-child(2) { background: linear-gradient(180deg, #3fd2ff, transparent 75%); animation-duration: 4s; animation-delay: -1s; }
 .dz-lights i:nth-child(3) { background: linear-gradient(180deg, #ffe23f, transparent 75%); animation-duration: 5s; animation-delay: -2s; }
 .dz-lights i:nth-child(4) { background: linear-gradient(180deg, #7dff6a, transparent 75%); animation-duration: 3.5s; animation-delay: -.5s; }
 .dz-lights i:nth-child(5) { background: linear-gradient(180deg, #b36bff, transparent 75%); animation-duration: 4.5s; animation-delay: -3s; }
 @keyframes dzBeam { from { transform: translateX(-50%) rotate(-38deg); } to { transform: translateX(-50%) rotate(38deg); } }
-.dz-ball { position: absolute; left: 50%; top: -4px; transform: translateX(-50%); font-size: calc(var(--dz, 120px) * .45); filter: drop-shadow(0 0 18px rgba(255,255,255,.8)); animation: dzBall 2s linear infinite; z-index: 3; }
-@keyframes dzBall { 50% { filter: drop-shadow(0 0 30px rgba(255,120,220,.9)); } }
-.dz-crew { position: absolute; left: 4%; right: 4%; top: 16%; bottom: 4%; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 10px 24px; }
-.dz { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; transition: transform .6s cubic-bezier(.2,1.6,.4,1), filter .6s; }
-.dz-av { display: block; width: var(--dz, 120px); height: var(--dz, 120px); animation: var(--mv) .5s ease-in-out infinite alternate; animation-delay: var(--dl, 0s); }
-.dz-av .av { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: calc(var(--dz, 120px) * .04 + 2px) solid #fff;
-  box-shadow: 0 0 0 4px rgba(255,63,164,.6), 0 12px 30px rgba(0,0,0,.45); display: block; }
-.dz b { color: #fff; font-weight: 900; font-size: clamp(.8rem, calc(var(--dz, 120px) * .12), 1.6rem); text-shadow: 0 2px 8px rgba(0,0,0,.6); background: rgba(0,0,0,.35); padding: 2px 12px; border-radius: 999px; white-space: nowrap; max-width: calc(var(--dz, 120px) * 1.6); overflow: hidden; text-overflow: ellipsis; }
-.dz.d0 { --mv: dzBounce; } .dz.d1 { --mv: dzSway; } .dz.d2 { --mv: dzShuffle; } .dz.d3 { --mv: dzHead; } .dz.d4 { --mv: dzSquash; } .dz.d5 { --mv: dzTwist; }
-.dz.d2 .dz-av { animation-duration: .5s; } .dz.d5 .dz-av { animation-duration: 1s; }
-@keyframes dzBounce { from { transform: translateY(0); } to { transform: translateY(-18%); } }
-@keyframes dzSway { from { transform: rotate(-14deg) translateX(-6%); } to { transform: rotate(14deg) translateX(6%); } }
-@keyframes dzShuffle { from { transform: translateX(-12%) translateY(0); } to { transform: translateX(12%) translateY(-8%); } }
-@keyframes dzHead { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
-@keyframes dzSquash { from { transform: scale(1.08, .9) translateY(6%); } to { transform: scale(.94, 1.08) translateY(-12%); } }
-@keyframes dzTwist { from { transform: rotate(0) scale(1); } to { transform: rotate(180deg) scale(1.05); } }
-.dz.star { transform: scale(1.15); z-index: 5; filter: drop-shadow(0 0 24px rgba(255,226,63,.9)); }
-.dz.star .dz-av .av { box-shadow: 0 0 0 6px #ffe23f, 0 0 40px rgba(255,226,63,.8), 0 12px 30px rgba(0,0,0,.45); }
-.dz.star::before { content: '⭐'; position: absolute; top: -18%; left: 50%; transform: translateX(-50%); font-size: calc(var(--dz, 120px) * .28); animation: dzBounce .5s ease-in-out infinite alternate; }
-.dz-bub { position: absolute; top: -6%; right: -14%; padding: 4px 10px; border-radius: 16px; background: #fff; font-size: calc(var(--dz, 120px) * .22); box-shadow: 0 4px 12px rgba(0,0,0,.3); opacity: 0; transform: scale(.3); transition: opacity .2s, transform .25s; z-index: 6; }
+.dz-ball { position: absolute; left: 50%; top: -4px; transform: translateX(-50%); font-size: calc(var(--dz, 80px) * .7); filter: drop-shadow(0 0 18px rgba(255,255,255,.8)); z-index: 3; animation: dzBallSpin 2s linear infinite; }
+@keyframes dzBallSpin { 50% { filter: drop-shadow(0 0 30px rgba(255,120,220,.9)); } }
+.dz-crew { position: absolute; left: 3%; right: 3%; top: 14%; bottom: 3%; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 6px 10px; perspective: 800px; }
+.dz { --d: var(--dz, 80px); --c: hsl(var(--hue, 300) 85% 58%); --c2: hsl(var(--hue, 300) 80% 42%);
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: transform .5s cubic-bezier(.2,1.6,.4,1), filter .5s; }
+.dz-fig { position: relative; display: block; width: calc(var(--d) * 1.6); height: calc(var(--d) * 2.25); transform-style: preserve-3d; animation-delay: var(--dl, 0s); }
+.dz-fig > * { animation-delay: var(--dl, 0s) !important; }
+.dz-av { position: absolute; left: 50%; top: 0; width: var(--d); height: var(--d); margin-left: calc(var(--d) * -.5); z-index: 3; }
+.dz-av .av { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: calc(var(--d) * .05 + 2px) solid #fff; box-shadow: 0 0 0 3px var(--c), 0 10px 24px rgba(0,0,0,.45); display: block; }
+.dz-torso { position: absolute; left: 50%; top: calc(var(--d) * .88); width: calc(var(--d) * .62); height: calc(var(--d) * .78); margin-left: calc(var(--d) * -.31);
+  border-radius: calc(var(--d) * .2) calc(var(--d) * .2) calc(var(--d) * .14) calc(var(--d) * .14); background: linear-gradient(180deg, var(--c), var(--c2)); box-shadow: inset 0 -6px 0 rgba(0,0,0,.15); z-index: 2; }
+.dz-arm { position: absolute; top: calc(var(--d) * .95); width: calc(var(--d) * .16); height: calc(var(--d) * .66); border-radius: 99px; background: var(--c2); transform-origin: 50% calc(var(--d) * .08); z-index: 2; }
+.dz-arm.l { left: calc(50% - var(--d) * .36); transform: rotate(18deg); } .dz-arm.r { left: calc(50% + var(--d) * .2); transform: rotate(-18deg); }
+.dz-arm i { position: absolute; left: 50%; bottom: calc(var(--d) * -.06); width: calc(var(--d) * .2); height: calc(var(--d) * .2); margin-left: calc(var(--d) * -.1); border-radius: 50%; background: #ffd9b8; box-shadow: inset 0 -2px 0 rgba(0,0,0,.12); }
+.dz-leg { position: absolute; top: calc(var(--d) * 1.55); width: calc(var(--d) * .19); height: calc(var(--d) * .66); border-radius: 99px 99px 40% 40%; background: #2b2550; transform-origin: 50% 0; z-index: 1; }
+.dz-leg::after { content: ''; position: absolute; bottom: -2px; left: -30%; width: 160%; height: calc(var(--d) * .12); border-radius: 99px; background: #fff; }
+.dz-leg.l { left: calc(50% - var(--d) * .24); transform: rotate(4deg); } .dz-leg.r { left: calc(50% + var(--d) * .05); transform: rotate(-4deg); }
+.dz b { color: #fff; font-weight: 900; font-size: clamp(.7rem, calc(var(--dz, 80px) * .2), 1.4rem); text-shadow: 0 2px 8px rgba(0,0,0,.6); background: rgba(0,0,0,.4); padding: 1px 10px; border-radius: 999px; white-space: nowrap; max-width: calc(var(--dz, 80px) * 2); overflow: hidden; text-overflow: ellipsis; }
+.dz-bub { position: absolute; top: -4%; right: -6%; padding: 3px 9px; border-radius: 16px; background: #fff; font-size: calc(var(--dz, 80px) * .32); box-shadow: 0 4px 12px rgba(0,0,0,.3); opacity: 0; transform: scale(.3); transition: opacity .2s, transform .25s; z-index: 6; }
 .dz.talk .dz-bub { opacity: 1; transform: scale(1); }
-@media (prefers-reduced-motion: reduce) { .dz-av, .dz-lights i, .dz-ball { animation: none !important; } }
+.dz.star { transform: scale(1.18); z-index: 5; filter: drop-shadow(0 0 22px rgba(255,226,63,.85)); }
+.dz.star .dz-av .av { box-shadow: 0 0 0 5px #ffe23f, 0 0 36px rgba(255,226,63,.8), 0 10px 24px rgba(0,0,0,.45); }
+.dz.star::before { content: '⭐'; position: absolute; top: -12%; left: 50%; transform: translateX(-50%); font-size: calc(var(--dz, 80px) * .4); z-index: 7; animation: dzHop .5s ease-in-out infinite alternate; }
+@keyframes dzHop { to { transform: translateX(-50%) translateY(-25%); } }
+
+/* Les pas (1 s = 2 temps à 120 bpm) */
+.m-bounce .dz-fig { animation: bnBody .5s ease-in-out infinite alternate; }
+.m-bounce .dz-av { animation: bnHead .5s ease-in-out infinite alternate; }
+.m-bounce .dz-arm.l { animation: bnArmL .5s ease-in-out infinite alternate; } .m-bounce .dz-arm.r { animation: bnArmR .5s ease-in-out infinite alternate; }
+@keyframes bnBody { to { transform: translateY(6%); } } @keyframes bnHead { to { transform: rotate(8deg); } }
+@keyframes bnArmL { from { transform: rotate(30deg); } to { transform: rotate(60deg); } } @keyframes bnArmR { from { transform: rotate(-30deg); } to { transform: rotate(-60deg); } }
+
+.m-disco .dz-fig { animation: dcHip 1s ease-in-out infinite; }
+.m-disco .dz-arm.r { animation: dcPoint 1s steps(1) infinite; } .m-disco .dz-arm.l { animation: dcHand 1s ease-in-out infinite; }
+.m-disco .dz-av { animation: dcHead 1s ease-in-out infinite; }
+@keyframes dcHip { 0%, 100% { transform: translateX(-6%) rotate(-4deg); } 50% { transform: translateX(6%) rotate(4deg); } }
+@keyframes dcPoint { 0% { transform: rotate(-150deg); } 50% { transform: rotate(-35deg); } }
+@keyframes dcHand { 0%, 100% { transform: rotate(40deg); } 50% { transform: rotate(10deg); } }
+@keyframes dcHead { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
+
+.m-jacks .dz-fig { animation: jkBody .5s ease-in-out infinite alternate; }
+.m-jacks .dz-arm.l { animation: jkArmL .5s ease-in-out infinite alternate; } .m-jacks .dz-arm.r { animation: jkArmR .5s ease-in-out infinite alternate; }
+.m-jacks .dz-leg.l { animation: jkLegL .5s ease-in-out infinite alternate; } .m-jacks .dz-leg.r { animation: jkLegR .5s ease-in-out infinite alternate; }
+@keyframes jkBody { to { transform: translateY(-12%); } }
+@keyframes jkArmL { from { transform: rotate(15deg); } to { transform: rotate(165deg); } } @keyframes jkArmR { from { transform: rotate(-15deg); } to { transform: rotate(-165deg); } }
+@keyframes jkLegL { to { transform: rotate(22deg); } } @keyframes jkLegR { to { transform: rotate(-22deg); } }
+
+.m-floss .dz-fig { animation: flHip .5s ease-in-out infinite alternate; }
+.m-floss .dz-arm.l { animation: flArmL .5s ease-in-out infinite alternate; } .m-floss .dz-arm.r { animation: flArmR .5s ease-in-out infinite alternate; }
+@keyframes flHip { from { transform: translateX(-8%); } to { transform: translateX(8%); } }
+@keyframes flArmL { from { transform: rotate(-30deg); } to { transform: rotate(55deg); } } @keyframes flArmR { from { transform: rotate(-55deg); } to { transform: rotate(30deg); } }
+
+.m-wave .dz-fig { animation: wvBody 1s ease-in-out infinite; }
+.m-wave .dz-arm.l { animation: wvArmL .5s ease-in-out infinite alternate; } .m-wave .dz-arm.r { animation: wvArmR .5s ease-in-out infinite alternate; }
+@keyframes wvBody { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+@keyframes wvArmL { from { transform: rotate(140deg); } to { transform: rotate(175deg); } } @keyframes wvArmR { from { transform: rotate(-175deg); } to { transform: rotate(-140deg); } }
+
+.m-robot .dz-fig { animation: rbBody 1s steps(1) infinite; }
+.m-robot .dz-arm.l { animation: rbArmL 1s steps(1) infinite; } .m-robot .dz-arm.r { animation: rbArmR 1s steps(1) infinite; }
+.m-robot .dz-av { animation: rbHead 1s steps(1) infinite; }
+@keyframes rbBody { 0% { transform: rotate(0); } 25% { transform: rotate(-6deg); } 50% { transform: rotate(0); } 75% { transform: rotate(6deg); } }
+@keyframes rbArmL { 0% { transform: rotate(90deg); } 25% { transform: rotate(10deg); } 50% { transform: rotate(90deg); } 75% { transform: rotate(150deg); } }
+@keyframes rbArmR { 0% { transform: rotate(-10deg); } 25% { transform: rotate(-90deg); } 50% { transform: rotate(-150deg); } 75% { transform: rotate(-90deg); } }
+@keyframes rbHead { 0% { transform: rotate(0); } 25% { transform: rotate(15deg); } 50% { transform: rotate(0); } 75% { transform: rotate(-15deg); } }
+
+.m-moon .dz-fig { animation: mnSlide 2s ease-in-out infinite; }
+.m-moon .dz-leg.l { animation: mnLeg .5s ease-in-out infinite alternate; } .m-moon .dz-leg.r { animation: mnLeg .5s ease-in-out infinite alternate-reverse; }
+.m-moon .dz-arm.l { animation: mnArm .5s ease-in-out infinite alternate; } .m-moon .dz-arm.r { animation: mnArm .5s ease-in-out infinite alternate-reverse; }
+@keyframes mnSlide { 0%, 100% { transform: translateX(-14%); } 50% { transform: translateX(14%); } }
+@keyframes mnLeg { from { transform: rotate(-14deg) scaleY(.9); } to { transform: rotate(14deg); } }
+@keyframes mnArm { from { transform: rotate(-25deg); } to { transform: rotate(25deg); } }
+
+.m-clap .dz-fig { animation: bnBody .5s ease-in-out infinite alternate; }
+.m-clap .dz-arm.l { animation: clArmL .5s ease-in infinite alternate; } .m-clap .dz-arm.r { animation: clArmR .5s ease-in infinite alternate; }
+@keyframes clArmL { from { transform: rotate(150deg); } to { transform: rotate(205deg); } } @keyframes clArmR { from { transform: rotate(-150deg); } to { transform: rotate(-205deg); } }
+
+.m-twist .dz-fig { animation: twBody .5s ease-in-out infinite alternate; }
+.m-twist .dz-leg.l, .m-twist .dz-leg.r { animation: twLeg .5s ease-in-out infinite alternate; }
+.m-twist .dz-arm.l { animation: twArmL .5s ease-in-out infinite alternate; } .m-twist .dz-arm.r { animation: twArmR .5s ease-in-out infinite alternate; }
+@keyframes twBody { from { transform: translateY(0) skewX(-6deg); } to { transform: translateY(8%) skewX(6deg); } }
+@keyframes twLeg { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+@keyframes twArmL { from { transform: rotate(70deg); } to { transform: rotate(20deg); } } @keyframes twArmR { from { transform: rotate(-20deg); } to { transform: rotate(-70deg); } }
+
+.m-spin .dz-fig { animation: spBody 2s cubic-bezier(.5,0,.5,1) infinite; }
+.m-spin .dz-arm.l { transform: rotate(160deg); } .m-spin .dz-arm.r { transform: rotate(-160deg); }
+@keyframes spBody { 0% { transform: rotateY(0) translateY(0); } 40% { transform: rotateY(360deg) translateY(-14%); } 50% { transform: rotateY(360deg) translateY(0); } 100% { transform: rotateY(720deg) translateY(0); } }
+.dz.solo { z-index: 8; }
+.scene-dance[data-plan="solo"] .dz:not(.solo) { filter: brightness(.6); }
+
+@media (prefers-reduced-motion: reduce) { .dz, .dz *, .dz-lights i, .dz-ball { animation: none !important; } }

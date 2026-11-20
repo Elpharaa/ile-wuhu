@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120g';
+import { api, DEMO } from './api.js?v=20261120h';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120g';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120h';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -3715,7 +3715,9 @@ async function pageScene(id) {
       paintScene.crew = crewKey;
       const ids = [...want];
       $('.scene-dance', root).innerHTML = dance ? `<div class="dz-lights"><i></i><i></i><i></i><i></i><i></i></div><span class="dz-ball">🪩</span>
-        <div class="dz-crew">${ids.map((uid, i) => `<div class="dz d${i % 6}" data-u="${esc(uid)}" style="--dl:${((i * 0.25) % 1).toFixed(2)}s"><span class="dz-bub"></span><span class="dz-av">${avatarImg(people.get(uid), 'av')}</span><b>${esc(people.get(uid).username)}</b></div>`).join('')}</div>` : '';
+        <div class="dz-crew">${ids.map((uid, i) => `<div class="dz m-bounce" data-u="${esc(uid)}" style="--hue:${(i * 47) % 360}"><span class="dz-bub"></span>
+          <span class="dz-fig"><span class="dz-leg l"></span><span class="dz-leg r"></span><span class="dz-torso"></span><span class="dz-arm l"><i></i></span><span class="dz-arm r"><i></i></span><span class="dz-av">${avatarImg(people.get(uid), 'av')}</span></span>
+          <b>${esc(people.get(uid).username)}</b></div>`).join('')}</div>` : '';
       sizeDance();
     }
   }
@@ -3724,13 +3726,13 @@ async function pageScene(id) {
     if (sc.mode !== 'dance') return;
     const n = Math.max(1, root.querySelectorAll('.dz').length), r = root.getBoundingClientRect();
     if (!r.width) return;
-    let best = 60;
+    let best = 34;
     for (let rows = 1; rows <= 4; rows++) {
       const perRow = Math.ceil(n / rows);
-      const s = Math.min((r.width * .92) / perRow - 24, (r.height * .78) / rows - 46);
+      const s = Math.min((r.width * .9) / perRow / 1.7 - 10, ((r.height * .8) / rows - 40) / 2.35);
       if (s > best) best = s;
     }
-    root.style.setProperty('--dz', Math.min(best, r.height * .5) + 'px');
+    root.style.setProperty('--dz', Math.max(34, Math.min(best, r.height * .3)) + 'px');
   }
 
   // la vie des petits habitants
@@ -3775,13 +3777,27 @@ async function pageScene(id) {
   raf = requestAnimationFrame(tick);
   const unsub = api.sceneSubscribe?.(id, async () => { const n = await safe(() => api.getScene(id)); if (n && !root.classList.contains('placing')) { sc = n; paintScene(); } });
   // piste de danse : un danseur passe en vedette à tour de rôle, et des bulles apparaissent
-  let starI = 0;
+  // chorégraphie : toutes les 4 s (8 temps), nouveau pas ; parfois tous ensemble, parfois en vague, parfois chacun son style, parfois un solo
+  const MOVES = ['bounce', 'disco', 'jacks', 'floss', 'wave', 'robot', 'moon', 'clap', 'twist'];
+  let starI = 0, step = 0, lastMove = '';
+  const pickMove = () => { let m; do m = MOVES[Math.floor(Math.random() * MOVES.length)]; while (m === lastMove); lastMove = m; return m; };
   const danceTimer = setInterval(() => {
     if (sc.mode !== 'dance' || document.hidden) return;
     sizeDance();
     const all = [...root.querySelectorAll('.dz')]; if (!all.length) return;
-    all.forEach(d => d.classList.remove('star'));
-    if (all.length > 1) all[starI++ % all.length].classList.add('star');
+    const plan = ['sync', 'wave', 'sync', 'free', 'solo', 'wave', 'sync', 'free'][step++ % 8];
+    const mv = pickMove();
+    all.forEach((d, i) => {
+      const m = plan === 'free' ? MOVES[Math.floor(Math.random() * MOVES.length)] : plan === 'solo' ? 'bounce' : mv;
+      d.className = d.className.replace(/\bm-\w+/g, '').replace(/\s+/g, ' ').trim() + ' m-' + m;
+      d.style.setProperty('--dl', plan === 'wave' ? `${(i * .12).toFixed(2)}s` : '0s');
+      d.classList.remove('star', 'solo');
+    });
+    if (all.length > 1 || plan === 'solo') {
+      const st = all[starI++ % all.length]; st.classList.add('star');
+      if (plan === 'solo') { st.className = st.className.replace(/\bm-\w+/g, '') + ' m-spin solo'; }
+    }
+    root.querySelector('.scene-dance')?.setAttribute('data-plan', plan);
     const emo = sceneEmojis(sc), d = all[Math.floor(Math.random() * all.length)], b = d && $('.dz-bub', d);
     if (b && emo.length) { b.textContent = emo[Math.floor(Math.random() * emo.length)]; d.classList.add('talk'); setTimeout(() => d.classList.remove('talk'), 2200); }
   }, 4000);
