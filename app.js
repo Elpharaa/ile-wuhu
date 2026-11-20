@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120e';
+import { api, DEMO } from './api.js?v=20261120f';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120e';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120f';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -3665,7 +3665,7 @@ async function pageScene(id) {
     <div class="scene-page">
       <div class="scene" id="scene">
         <div class="scene-bg"></div><div class="scene-floor"></div>
-        <div class="scene-decor back"></div><div class="scene-folk"></div><div class="scene-decor front"></div>
+        <div class="scene-decor back"></div><div class="scene-dance"></div><div class="scene-folk"></div><div class="scene-decor front"></div>
         <div class="scene-title"><span class="scene-emoji"></span><b class="scene-name"></b><small class="scene-count"></small></div>
         <button class="scene-fs" title="Plein écran" type="button">⛶</button>
       </div>
@@ -3674,7 +3674,7 @@ async function pageScene(id) {
         <button class="btn ghost sm" data-st="bg">🖼️ Fond</button>
         <button class="btn ghost sm" data-st="decor">🧩 Décor</button>
         <button class="btn ghost sm" data-st="floor">🚶 Zone de marche</button>
-        <button class="btn ghost sm" data-st="info">✏️ Nom & bulles</button>
+        <button class="btn ghost sm" data-st="info">✏️ Nom & ambiance</button>
         <a class="btn ghost sm" href="#/parametres/ecrans">⚙️ Tous les écrans</a>
       </div>` : ''}
     </div>`;
@@ -3707,6 +3707,30 @@ async function pageScene(id) {
     for (const [uid, w] of W) if (!want.has(uid)) { w.el.remove(); W.delete(uid); }
     for (const w of W.values()) { w.y = Math.min(sc.floor_bottom, Math.max(sc.floor_top, w.y)); w.ty = Math.min(sc.floor_bottom, Math.max(sc.floor_top, w.ty)); }
     $('.scene-count', root).textContent = want.size ? `${want.size} personne${want.size > 1 ? 's' : ''}` : (admin ? 'Personne pour l\'instant : clique sur 👥' : '');
+    // mode « piste de danse » : les avatars en gros plan qui dansent
+    const dance = sc.mode === 'dance';
+    root.classList.toggle('mode-dance', dance);
+    const crewKey = dance ? [...want].join(',') : '';
+    if (crewKey !== paintScene.crew) {
+      paintScene.crew = crewKey;
+      const ids = [...want];
+      $('.scene-dance', root).innerHTML = dance ? `<div class="dz-lights"><i></i><i></i><i></i><i></i><i></i></div><span class="dz-ball">🪩</span>
+        <div class="dz-crew">${ids.map((uid, i) => `<div class="dz d${i % 6}" data-u="${esc(uid)}" style="--dl:${((i * 0.25) % 1).toFixed(2)}s"><span class="dz-bub"></span><span class="dz-av">${avatarImg(people.get(uid), 'av')}</span><b>${esc(people.get(uid).username)}</b></div>`).join('')}</div>` : '';
+      sizeDance();
+    }
+  }
+  // taille des danseurs : le plus gros possible selon leur nombre et la taille de l'écran
+  function sizeDance() {
+    if (sc.mode !== 'dance') return;
+    const n = Math.max(1, root.querySelectorAll('.dz').length), r = root.getBoundingClientRect();
+    if (!r.width) return;
+    let best = 60;
+    for (let rows = 1; rows <= 4; rows++) {
+      const perRow = Math.ceil(n / rows);
+      const s = Math.min((r.width * .92) / perRow - 24, (r.height * .78) / rows - 46);
+      if (s > best) best = s;
+    }
+    root.style.setProperty('--dz', Math.min(best, r.height * .5) + 'px');
   }
 
   // la vie des petits habitants
@@ -3715,7 +3739,7 @@ async function pageScene(id) {
   function tick(t) {
     if (stopped) return;
     const dt = Math.min(.05, (t - (last || t)) / 1000); last = t;
-    if (!document.hidden) {
+    if (!document.hidden && sc.mode !== 'dance') {
       const emo = sceneEmojis(sc), list = [...W.values()];
       for (const w of list) {
         if (w.bubUntil && t > w.bubUntil) { w.el.classList.remove('talk'); w.bubUntil = 0; }
@@ -3750,7 +3774,20 @@ async function pageScene(id) {
   paintScene();
   raf = requestAnimationFrame(tick);
   const unsub = api.sceneSubscribe?.(id, async () => { const n = await safe(() => api.getScene(id)); if (n && !root.classList.contains('placing')) { sc = n; paintScene(); } });
-  sceneStop = () => { stopped = true; cancelAnimationFrame(raf); unsub?.(); };
+  // piste de danse : un danseur passe en vedette à tour de rôle, et des bulles apparaissent
+  let starI = 0;
+  const danceTimer = setInterval(() => {
+    if (sc.mode !== 'dance' || document.hidden) return;
+    sizeDance();
+    const all = [...root.querySelectorAll('.dz')]; if (!all.length) return;
+    all.forEach(d => d.classList.remove('star'));
+    if (all.length > 1) all[starI++ % all.length].classList.add('star');
+    const emo = sceneEmojis(sc), d = all[Math.floor(Math.random() * all.length)], b = d && $('.dz-bub', d);
+    if (b && emo.length) { b.textContent = emo[Math.floor(Math.random() * emo.length)]; d.classList.add('talk'); setTimeout(() => d.classList.remove('talk'), 2200); }
+  }, 4000);
+  const onResize = () => sizeDance();
+  window.addEventListener('resize', onResize); document.addEventListener('fullscreenchange', onResize);
+  sceneStop = () => { stopped = true; cancelAnimationFrame(raf); unsub?.(); clearInterval(danceTimer); window.removeEventListener('resize', onResize); document.removeEventListener('fullscreenchange', onResize); };
 
   $('.scene-fs', root).addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen?.(); else root.requestFullscreen?.().catch(() => {});
@@ -3818,12 +3855,13 @@ async function pageScene(id) {
       modal._onClose = () => { root.classList.remove('show-floor'); save({ floor_top: sc.floor_top, floor_bottom: sc.floor_bottom }); };
     },
     info() {
-      const m = openModal(`<h2>✏️ Nom & bulles</h2>
+      const m = openModal(`<h2>✏️ Nom, ambiance & bulles</h2>
         <div class="form"><label>Nom de l'écran<input id="sc-name" value="${esc(sc.name)}" maxlength="40"></label>
         <label>Emoji<input id="sc-emo" value="${esc(sc.emoji)}" maxlength="4"></label>
+        <label>Ambiance<select id="sc-mode"><option value="walk" ${sc.mode !== 'dance' ? 'selected' : ''}>🚶 Ils se baladent dans le décor</option><option value="dance" ${sc.mode === 'dance' ? 'selected' : ''}>🪩 Piste de danse (gros plan)</option></select></label>
         <label>Ce que les avatars disent dans leurs bulles (séparé par des espaces)<input id="sc-bub" value="${esc(sc.bubbles)}"></label></div>
         <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button type="button" class="btn primary" id="sc-ok">Enregistrer</button></div>`);
-      $('#sc-ok', m).onclick = () => { const p = { name: $('#sc-name', m).value.trim() || 'Écran', emoji: $('#sc-emo', m).value.trim(), bubbles: $('#sc-bub', m).value.trim() }; closeModal(); save(p); };
+      $('#sc-ok', m).onclick = () => { const p = { name: $('#sc-name', m).value.trim() || 'Écran', emoji: $('#sc-emo', m).value.trim(), bubbles: $('#sc-bub', m).value.trim(), mode: $('#sc-mode', m).value }; closeModal(); save(p); };
     },
   };
   app.querySelectorAll('[data-st]').forEach(b => b.addEventListener('click', () => tools[b.dataset.st]()));
@@ -3884,16 +3922,16 @@ async function drawScenesAdmin(box) {
       <p class="small">Crée des écrans à afficher pendant vos soirées (taverne, salon, plage…). Tu choisis le fond, le décor et qui est présent : les avatars vivent leur vie tout seuls. L'écran des tournois, lui, se trouve sur chaque compétition (mode soirée).</p>
       <div class="sc-list">${list.map(s => `<div class="sc-item">
         <span class="sc-thumb" style="${s.background_url ? `background-image:url('${esc(s.background_url)}')` : ''}">${s.background_url ? '' : esc(s.emoji || '🎬')}</span>
-        <span class="sc-info"><b>${esc(s.emoji || '')} ${esc(s.name)}</b><small>${(s.members || []).length} personne(s) · ${(s.decor || []).length} élément(s) de décor</small></span>
+        <span class="sc-info"><b>${esc(s.emoji || '')} ${esc(s.name)}</b><small>${s.mode === 'dance' ? '🪩 Piste de danse · ' : ''}${(s.members || []).length} personne(s) · ${(s.decor || []).length} élément(s) de décor</small></span>
         <a class="btn primary sm" href="#/ecran/${esc(s.id)}">Ouvrir</a><button class="btn danger sm" data-scdel="${esc(s.id)}">✕</button></div>`).join('') || '<p class="empty">Aucun écran pour l\'instant.</p>'}</div>
     </section>`;
   $('#sc-new', box).onclick = () => {
     const m = openModal(`<h2>Nouvel écran d'attente</h2>
-      <div class="sc-tpl">${[['🍺', 'Taverne', '🍺 🍻 🎲 😂 🎵 🍕 💬 🃏'], ['🛋️', 'Salon', '🎮 😂 🍿 💬 🥤 😴'], ['🏖️', 'Plage', '🌊 ☀️ 🍹 🏐 😎 🐚'], ['🎄', 'Noël', '🎁 🎄 ⛄ 🍪 ☕ ✨'], ['🎬', 'Autre', '💬 😂 🎉']].map(([e, n, b]) => `<button type="button" data-tpl="${esc(e)}|${esc(n)}|${esc(b)}"><span>${e}</span>${n}</button>`).join('')}</div>
+      <div class="sc-tpl">${[['🍺', 'Taverne', '🍺 🍻 🎲 😂 🎵 🍕 💬 🃏'], ['🛋️', 'Salon', '🎮 😂 🍿 💬 🥤 😴'], ['🏖️', 'Plage', '🌊 ☀️ 🍹 🏐 😎 🐚'], ['🎄', 'Noël', '🎁 🎄 ⛄ 🍪 ☕ ✨'], ['🪩', 'Piste de danse', '🎵 🔥 💃 🕺 🎶 ✨ 🙌', 'dance'], ['🎬', 'Autre', '💬 😂 🎉']].map(([e, n, b, md]) => `<button type="button" data-tpl="${esc(e)}|${esc(n)}|${esc(b)}|${md || 'walk'}"><span>${e}</span>${n}</button>`).join('')}</div>
       <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button></div>`);
     m.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => safe(async () => {
-      const [emoji, name, bubbles] = b.dataset.tpl.split('|');
-      const s = await api.createScene({ emoji, name, bubbles });
+      const [emoji, name, bubbles, mode] = b.dataset.tpl.split('|');
+      const s = await api.createScene({ emoji, name, bubbles, mode });
       closeModal(); location.hash = '#/ecran/' + s.id;
     }));
   };

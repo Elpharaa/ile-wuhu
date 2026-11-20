@@ -1728,3 +1728,40 @@ footer a.foot-discord:hover { transform: translateY(-2px); box-shadow: 0 10px 24
 .sc-tpl button span { font-size: 2rem; } .sc-tpl button:hover { border-color: var(--sea, #2fa4e7); }
 @media (max-width: 640px) { .scene { aspect-ratio: 4 / 5; } .sw-body { left: -21px; top: -48px; width: 42px; height: 42px; } .sw-body .av { width: 42px; height: 42px; } .sw-bubble { top: -82px; } }
 @media (prefers-reduced-motion: reduce) { .sw .sw-body { animation: none !important; } }
+
+/* ---------- Écran « piste de danse » : avatars en gros plan ---------- */
+.scene-dance { position: absolute; inset: 0; z-index: 2; display: none; }
+.scene.mode-dance .scene-dance { display: block; }
+.scene.mode-dance .scene-folk, .scene.mode-dance .scene-floor { display: none; }
+.scene.mode-dance.no-bg { background: radial-gradient(circle at 50% 110%, #ff3fa4 0%, #7a2fd1 35%, #1a0f3a 70%, #0a0618 100%); }
+.dz-lights { position: absolute; inset: 0; overflow: hidden; pointer-events: none; mix-blend-mode: screen; }
+.dz-lights i { position: absolute; top: -10%; left: 50%; width: 22%; height: 130%; transform-origin: 50% 0; opacity: .35; filter: blur(6px);
+  background: linear-gradient(180deg, rgba(255,255,255,.9), transparent 75%); clip-path: polygon(45% 0, 55% 0, 100% 100%, 0 100%); animation: dzBeam 4s ease-in-out infinite alternate; }
+.dz-lights i:nth-child(1) { background-color: transparent; --c: #ff3fa4; background: linear-gradient(180deg, #ff3fa4, transparent 75%); animation-duration: 3s; }
+.dz-lights i:nth-child(2) { background: linear-gradient(180deg, #3fd2ff, transparent 75%); animation-duration: 4s; animation-delay: -1s; }
+.dz-lights i:nth-child(3) { background: linear-gradient(180deg, #ffe23f, transparent 75%); animation-duration: 5s; animation-delay: -2s; }
+.dz-lights i:nth-child(4) { background: linear-gradient(180deg, #7dff6a, transparent 75%); animation-duration: 3.5s; animation-delay: -.5s; }
+.dz-lights i:nth-child(5) { background: linear-gradient(180deg, #b36bff, transparent 75%); animation-duration: 4.5s; animation-delay: -3s; }
+@keyframes dzBeam { from { transform: translateX(-50%) rotate(-38deg); } to { transform: translateX(-50%) rotate(38deg); } }
+.dz-ball { position: absolute; left: 50%; top: -4px; transform: translateX(-50%); font-size: calc(var(--dz, 120px) * .45); filter: drop-shadow(0 0 18px rgba(255,255,255,.8)); animation: dzBall 2s linear infinite; z-index: 3; }
+@keyframes dzBall { 50% { filter: drop-shadow(0 0 30px rgba(255,120,220,.9)); } }
+.dz-crew { position: absolute; left: 4%; right: 4%; top: 16%; bottom: 4%; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 10px 24px; }
+.dz { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; transition: transform .6s cubic-bezier(.2,1.6,.4,1), filter .6s; }
+.dz-av { display: block; width: var(--dz, 120px); height: var(--dz, 120px); animation: var(--mv) .5s ease-in-out infinite alternate; animation-delay: var(--dl, 0s); }
+.dz-av .av { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: calc(var(--dz, 120px) * .04 + 2px) solid #fff;
+  box-shadow: 0 0 0 4px rgba(255,63,164,.6), 0 12px 30px rgba(0,0,0,.45); display: block; }
+.dz b { color: #fff; font-weight: 900; font-size: clamp(.8rem, calc(var(--dz, 120px) * .12), 1.6rem); text-shadow: 0 2px 8px rgba(0,0,0,.6); background: rgba(0,0,0,.35); padding: 2px 12px; border-radius: 999px; white-space: nowrap; max-width: calc(var(--dz, 120px) * 1.6); overflow: hidden; text-overflow: ellipsis; }
+.dz.d0 { --mv: dzBounce; } .dz.d1 { --mv: dzSway; } .dz.d2 { --mv: dzShuffle; } .dz.d3 { --mv: dzHead; } .dz.d4 { --mv: dzSquash; } .dz.d5 { --mv: dzTwist; }
+.dz.d2 .dz-av { animation-duration: .5s; } .dz.d5 .dz-av { animation-duration: 1s; }
+@keyframes dzBounce { from { transform: translateY(0); } to { transform: translateY(-18%); } }
+@keyframes dzSway { from { transform: rotate(-14deg) translateX(-6%); } to { transform: rotate(14deg) translateX(6%); } }
+@keyframes dzShuffle { from { transform: translateX(-12%) translateY(0); } to { transform: translateX(12%) translateY(-8%); } }
+@keyframes dzHead { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
+@keyframes dzSquash { from { transform: scale(1.08, .9) translateY(6%); } to { transform: scale(.94, 1.08) translateY(-12%); } }
+@keyframes dzTwist { from { transform: rotate(0) scale(1); } to { transform: rotate(180deg) scale(1.05); } }
+.dz.star { transform: scale(1.15); z-index: 5; filter: drop-shadow(0 0 24px rgba(255,226,63,.9)); }
+.dz.star .dz-av .av { box-shadow: 0 0 0 6px #ffe23f, 0 0 40px rgba(255,226,63,.8), 0 12px 30px rgba(0,0,0,.45); }
+.dz.star::before { content: '⭐'; position: absolute; top: -18%; left: 50%; transform: translateX(-50%); font-size: calc(var(--dz, 120px) * .28); animation: dzBounce .5s ease-in-out infinite alternate; }
+.dz-bub { position: absolute; top: -6%; right: -14%; padding: 4px 10px; border-radius: 16px; background: #fff; font-size: calc(var(--dz, 120px) * .22); box-shadow: 0 4px 12px rgba(0,0,0,.3); opacity: 0; transform: scale(.3); transition: opacity .2s, transform .25s; z-index: 6; }
+.dz.talk .dz-bub { opacity: 1; transform: scale(1); }
+@media (prefers-reduced-motion: reduce) { .dz-av, .dz-lights i, .dz-ball { animation: none !important; } }
