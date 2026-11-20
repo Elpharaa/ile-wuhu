@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261120d';
+import { resolveBracket } from './bracket.js?v=20261120e';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -106,6 +106,16 @@ async function supabaseApi() {
     // ----- Défis amicaux (aussi lancés depuis Discord avec /defi) -----
     myDuels: async () => ok(await sb.rpc('wuhu_my_duels')),
     liveDuels: async () => ok(await sb.rpc('wuhu_live_duels')),
+    // ----- Écrans d'attente perso (taverne…) -----
+    listScenes: async () => ok(await sb.from('wuhu_scenes').select('*').order('created_at')),
+    getScene: async id => ok(await sb.from('wuhu_scenes').select('*').eq('id', id).maybeSingle()),
+    createScene: async p => ok(await sb.from('wuhu_scenes').insert(p).select().single()),
+    updateScene: async (id, patch) => ok(await sb.from('wuhu_scenes').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)),
+    deleteScene: async id => ok(await sb.from('wuhu_scenes').delete().eq('id', id)),
+    sceneSubscribe(id, cb) {
+      const ch = sb.channel('scene-' + id).on('postgres_changes', { event: '*', schema: 'public', table: 'wuhu_scenes', filter: `id=eq.${id}` }, cb).subscribe();
+      return () => sb.removeChannel(ch);
+    },
     createDuel: async (opp, game) => ok(await sb.rpc('wuhu_duel_create', { p_opponent: opp, p_game: game || null })),
     duelAct: async (id, action, winnerD) => ok(await sb.rpc('wuhu_duel_act', { p_id: id, p_action: action, p_winner_d: winnerD || null })),
     react: async (tid, mid, uid, emoji, on) => ok(on
@@ -286,6 +296,8 @@ function demoApi() {
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
+  let scenes = [{ id: 'sc1', name: 'Taverne', emoji: '🍺', background_url: null, members: ['u0', 'u1', 'u2', 'u3', 'u4'], decor: [], floor_top: 55, floor_bottom: 95, bubbles: '🍺 🍻 🎲 😂 🎵 🍕 💬 🃏' }];
+  const sceneSubs = new Set();
   const dayStr = d => new Date(Date.now() + d * 864e5).toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
   let quiz = [
     { id: 'q1', day: dayStr(0), question: 'Dans Wii Sports Resort, comment s\'appelle l\'île où se déroulent les sports ?', choices: ['Isle Delfino', 'L\'île Wuhu', 'L\'île Pikmin', 'Koholint'], reward: 10, key: { answer: 1, explanation: 'L\'île Wuhu apparaît dans Wii Fit, Wii Sports Resort et Pilotwings Resort.' } },
@@ -410,6 +422,12 @@ function demoApi() {
     async listReactions(tid) { return clone(reactions.filter(r => r.tournament_id === tid)); },
     async listDuels(uid) { return clone(duels.filter(d => !uid || d.challenger === uid || d.opponent === uid)); },
     async myDuels() { return { me: 'D-u0', duels: clone(live) }; },
+    async listScenes() { return clone(scenes); },
+    async getScene(id) { return clone(scenes.find(s => s.id === id) || null); },
+    async createScene(p) { const s = { id: 'sc' + Date.now(), background_url: null, members: [], decor: [], floor_top: 55, floor_bottom: 95, bubbles: '🍺 🍻 🎲 😂 🎵', ...p }; scenes.push(s); return clone(s); },
+    async updateScene(id, patch) { const s = scenes.find(x => x.id === id); if (s) Object.assign(s, clone(patch)); sceneSubs.forEach(f => f()); },
+    async deleteScene(id) { scenes = scenes.filter(s => s.id !== id); },
+    sceneSubscribe(id, cb) { sceneSubs.add(cb); return () => sceneSubs.delete(cb); },
     async liveDuels() { return [{ id: 'dlv1', challenger: 'u3', opponent: 'u5', game: 'Smash Bros.', status: 'accepted', winner: null, done_at: null }]
       .concat(clone(live.filter(d => ['accepted', 'claimed', 'done'].includes(d.status)))); },
     async createDuel(opp, game) {

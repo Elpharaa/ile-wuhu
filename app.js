@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120d';
+import { api, DEMO } from './api.js?v=20261120e';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120d';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120e';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -342,6 +342,7 @@ function renderNav() {
 async function route() {
   if (unsubscribe) { unsubscribe(); unsubscribe = null; }
   btCurrent?.destroy(); btCurrent = null;
+  sceneStop?.(); sceneStop = null;
   closeModal();
   renderNav();
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
@@ -364,6 +365,7 @@ async function route() {
     case 'quiz': return pageQuiz();
     case 'blindtest': return parts[1] === 'salon' ? pageBtRoom(parts[2]) : pageBlindtest();
     case 'soiree': return pageParty(parts[1]);
+    case 'ecran': return pageScene(parts[1]);
     case 'parametres': return state.me.is_admin ? pageSettings(parts[1] || 'fond') : pageHome();
     default: return pageHome();
   }
@@ -3497,6 +3499,7 @@ async function pageSettings(tab = 'fond') {
       <button data-tab="galerie">Mes images</button>
       <button data-tab="quiz">🧠 Quiz</button>
       <button data-tab="blindtest">🎵 Blind test</button>
+      <button data-tab="ecrans">🎬 Écrans d'attente</button>
     </div>
     <div id="set-body"></div>`;
   const body = $('#set-body');
@@ -3618,7 +3621,8 @@ async function pageSettings(tab = 'fond') {
     app.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
     ({ fond: showBg, icones: showIcons, galerie: showGallery,
        quiz: () => { body.innerHTML = '<section id="quiz-admin"></section>'; drawQuizAdmin(); },
-       blindtest: () => { body.innerHTML = '<section id="bt-admin"></section>'; drawBtAdmin(); } })[k]?.();
+       blindtest: () => { body.innerHTML = '<section id="bt-admin"></section>'; drawBtAdmin(); },
+       ecrans: () => drawScenesAdmin(body) })[k]?.();
     history.replaceState(null, '', '#/parametres/' + k);
   };
   app.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
@@ -3645,3 +3649,256 @@ async function pageSettings(tab = 'fond') {
     if (w?.new) { await loadBalances(); renderNav(); showWelcome(w); }
   }
 })();
+
+// ---------- Écrans d'attente perso (taverne…) ----------
+// L'admin choisit le fond, le décor et les membres présents ; les avatars vivent leur vie (se baladent, discutent, dansent).
+let sceneStop = null;
+const sceneEmojis = sc => (sc.bubbles || '').split(/\s+/).filter(Boolean);
+async function pageScene(id) {
+  sceneStop?.(); sceneStop = null;
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  let [sc, members] = await Promise.all([safe(() => api.getScene(id)), safe(() => api.listMembers())]);
+  if (!sc) { app.innerHTML = '<p class="empty">Écran introuvable.</p>'; return; }
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const admin = state.me.is_admin;
+  app.innerHTML = `
+    <div class="scene-page">
+      <div class="scene" id="scene">
+        <div class="scene-bg"></div><div class="scene-floor"></div>
+        <div class="scene-decor back"></div><div class="scene-folk"></div><div class="scene-decor front"></div>
+        <div class="scene-title"><span class="scene-emoji"></span><b class="scene-name"></b><small class="scene-count"></small></div>
+        <button class="scene-fs" title="Plein écran" type="button">⛶</button>
+      </div>
+      ${admin ? `<div class="scene-tools">
+        <button class="btn ghost sm" data-st="people">👥 Qui est là ?</button>
+        <button class="btn ghost sm" data-st="bg">🖼️ Fond</button>
+        <button class="btn ghost sm" data-st="decor">🧩 Décor</button>
+        <button class="btn ghost sm" data-st="floor">🚶 Zone de marche</button>
+        <button class="btn ghost sm" data-st="info">✏️ Nom & bulles</button>
+        <a class="btn ghost sm" href="#/parametres/ecrans">⚙️ Tous les écrans</a>
+      </div>` : ''}
+    </div>`;
+  const root = $('#scene'), folk = $('.scene-folk', root), back = $('.scene-decor.back', root), front = $('.scene-decor.front', root);
+  const W = new Map();
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const spot = () => ({ x: rnd(5, 95), y: rnd(sc.floor_top, sc.floor_bottom) });
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function paintScene() {
+    root.style.setProperty('--scene-bg', sc.background_url ? `url('${sc.background_url.replace(/'/g, '%27')}')` : 'none');
+    root.classList.toggle('no-bg', !sc.background_url);
+    $('.scene-emoji', root).textContent = sc.emoji || '';
+    $('.scene-name', root).textContent = sc.name || '';
+    $('.scene-floor', root).style.cssText = `top:${sc.floor_top}%;height:${sc.floor_bottom - sc.floor_top}%`;
+    const deco = (list, z) => list.map((d, i) => ({ d, i })).filter(({ d }) => (d.z || 'back') === z).map(({ d, i }) =>
+      `<img class="sd ${d.flip ? 'flip' : ''}" data-i="${i}" src="${esc(d.url)}" alt="" style="left:${d.x}%;top:${d.y}%;width:${d.w || 18}%">`).join('');
+    back.innerHTML = deco(sc.decor || [], 'back');
+    front.innerHTML = deco(sc.decor || [], 'front');
+    // les présents
+    const want = new Set((sc.members || []).filter(id => people.has(id)));
+    for (const uid of want) if (!W.has(uid)) {
+      const p = people.get(uid), d = document.createElement('div');
+      d.className = 'sw';
+      d.innerHTML = `<span class="sw-bubble"></span><span class="sw-body">${avatarImg(p, 'av')}</span><span class="sw-name">${esc(p.username)}</span>`;
+      folk.appendChild(d);
+      const s = spot();
+      W.set(uid, { el: d, bub: $('.sw-bubble', d), x: s.x, y: s.y, tx: s.x, ty: s.y, wait: rnd(0, 3), speed: rnd(4, 8), dir: 1, act: 'idle', until: 0 });
+    }
+    for (const [uid, w] of W) if (!want.has(uid)) { w.el.remove(); W.delete(uid); }
+    for (const w of W.values()) { w.y = Math.min(sc.floor_bottom, Math.max(sc.floor_top, w.y)); w.ty = Math.min(sc.floor_bottom, Math.max(sc.floor_top, w.ty)); }
+    $('.scene-count', root).textContent = want.size ? `${want.size} personne${want.size > 1 ? 's' : ''}` : (admin ? 'Personne pour l\'instant : clique sur 👥' : '');
+  }
+
+  // la vie des petits habitants
+  let raf = 0, last = 0, stopped = false;
+  const say = (w, txt, ms = 2600) => { w.bub.textContent = txt; w.el.classList.add('talk'); w.bubUntil = performance.now() + ms; };
+  function tick(t) {
+    if (stopped) return;
+    const dt = Math.min(.05, (t - (last || t)) / 1000); last = t;
+    if (!document.hidden) {
+      const emo = sceneEmojis(sc), list = [...W.values()];
+      for (const w of list) {
+        if (w.bubUntil && t > w.bubUntil) { w.el.classList.remove('talk'); w.bubUntil = 0; }
+        const dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
+        if (w.act === 'walk' && dist > .3) {
+          const sp = w.speed * dt;
+          w.x += dx / dist * Math.min(sp, dist); w.y += dy / dist * Math.min(sp, dist) * 1.4;
+          if (Math.abs(dx) > .1) w.dir = dx > 0 ? 1 : -1;
+        } else if (w.act === 'walk') { w.act = 'idle'; w.wait = rnd(1.5, 5); }
+        else if (t > w.until && (w.wait -= dt) <= 0) {
+          // prochaine envie : marcher, rejoindre quelqu'un pour discuter, danser ou dire un truc
+          const r = Math.random();
+          if (r < .45) { const s = spot(); w.tx = s.x; w.ty = s.y; w.act = 'walk'; }
+          else if (r < .65 && list.length > 1) {
+            const o = list[Math.floor(Math.random() * list.length)];
+            if (o !== w) { w.tx = Math.min(95, Math.max(5, o.x + (o.x > w.x ? -5 : 5))); w.ty = o.y; w.act = 'walk'; w.chatWith = o; }
+          } else if (r < .8 && !calm) { w.act = 'dance'; w.until = t + 2600; w.el.classList.add('dance'); setTimeout(() => w.el.classList.remove('dance'), 2600); w.act = 'idle'; w.wait = rnd(2, 4); }
+          else if (emo.length) { say(w, emo[Math.floor(Math.random() * emo.length)]); w.wait = rnd(2, 5); }
+          else w.wait = rnd(2, 5);
+        }
+        if (w.chatWith && w.act === 'idle') { const o = w.chatWith; w.chatWith = null; if (emo.length) { say(w, '💬'); setTimeout(() => say(o, emo[Math.floor(Math.random() * emo.length)]), 900); } w.dir = o.x > w.x ? 1 : -1; w.wait = rnd(3, 6); }
+        const k = (w.y - sc.floor_top) / Math.max(1, sc.floor_bottom - sc.floor_top);
+        w.el.classList.toggle('moving', w.act === 'walk');
+        w.el.style.left = w.x + '%'; w.el.style.top = w.y + '%';
+        w.el.style.zIndex = Math.round(w.y * 10);
+        w.el.style.setProperty('--dir', w.dir);
+        w.el.style.setProperty('--k', (.75 + k * .55).toFixed(3));
+      }
+    }
+    raf = requestAnimationFrame(tick);
+  }
+  paintScene();
+  raf = requestAnimationFrame(tick);
+  const unsub = api.sceneSubscribe?.(id, async () => { const n = await safe(() => api.getScene(id)); if (n && !root.classList.contains('placing')) { sc = n; paintScene(); } });
+  sceneStop = () => { stopped = true; cancelAnimationFrame(raf); unsub?.(); };
+
+  $('.scene-fs', root).addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen?.(); else root.requestFullscreen?.().catch(() => {});
+  });
+  if (!admin) return;
+  const save = patch => safe(async () => { Object.assign(sc, patch); paintScene(); await api.updateScene(id, patch); });
+  const pickFile = (accept = 'image/*', multiple = false) => new Promise(res => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept; inp.multiple = multiple;
+    inp.onchange = () => res([...inp.files]); inp.click();
+  });
+  // choisir une image : envoyer depuis l'appareil ou piocher dans « Mes images »
+  const chooseImage = (title, maxSize) => new Promise(async resolve => {
+    const gal = (await safe(() => api.listGallery())) || [];
+    const m = openModal(`<h2>${title}</h2>
+      <button class="btn primary" id="sc-up" type="button">📤 Envoyer une image</button>
+      ${gal.length ? `<p class="small">ou choisis dans tes images :</p><div class="sc-gal">${gal.map((g, i) => `<button type="button" data-g="${i}"><img src="${esc(g.url)}" alt="" loading="lazy"></button>`).join('')}</div>` : '<p class="small muted">Astuce : ajoute tes décors dans Paramètres → Mes images pour les retrouver ici.</p>'}
+      <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button></div>`);
+    $('#sc-up', m).onclick = async () => {
+      const [f] = await pickFile('image/png,image/jpeg,image/webp,image/gif'); if (!f) return;
+      await safe(async () => { toast('Envoi…'); const url = await api.uploadImage(await shrinkImage(f, maxSize, f.type === 'image/jpeg' ? 'image/jpeg' : 'image/png'), 'ecrans'); closeModal(); resolve(url); });
+    };
+    m.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { closeModal(); resolve(gal[+b.dataset.g].url); });
+  });
+
+  const tools = {
+    people() {
+      const list = [...people.values()].filter(p => !p.is_guest).sort((a, b) => a.username.localeCompare(b.username));
+      const sel = new Set(sc.members || []);
+      const m = openModal(`<h2>👥 Qui est dans « ${esc(sc.name)} » ?</h2>
+        <input id="sc-q" placeholder="Rechercher un membre…" autocomplete="off">
+        <div class="row wrap sc-pk-bar"><button type="button" class="btn ghost sm" id="sc-all">Tout le monde</button><button type="button" class="btn ghost sm" id="sc-none">Personne</button><span class="small muted" id="sc-n"></span></div>
+        <div class="sc-pick">${list.map(p => `<label class="sc-pp" data-n="${esc(p.username.toLowerCase())}"><input type="checkbox" value="${esc(p.id)}" ${sel.has(p.id) ? 'checked' : ''}>${avatarImg(p, 'av sm')}<span>${esc(p.username)}</span></label>`).join('')}</div>
+        <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button type="button" class="btn primary" id="sc-ok">Enregistrer</button></div>`);
+      const boxes = [...m.querySelectorAll('.sc-pick input')];
+      const count = () => { $('#sc-n', m).textContent = `${boxes.filter(b => b.checked).length} choisi(s)`; };
+      boxes.forEach(b => b.onchange = count); count();
+      $('#sc-q', m).oninput = e => { const q = e.target.value.trim().toLowerCase(); m.querySelectorAll('.sc-pp').forEach(l => { l.hidden = q && !l.dataset.n.includes(q); }); };
+      $('#sc-all', m).onclick = () => { boxes.forEach(b => { if (!b.closest('.sc-pp').hidden) b.checked = true; }); count(); };
+      $('#sc-none', m).onclick = () => { boxes.forEach(b => b.checked = false); count(); };
+      $('#sc-ok', m).onclick = () => { closeModal(); save({ members: boxes.filter(b => b.checked).map(b => b.value) }).then(() => toast('Liste mise à jour 👥')); };
+    },
+    async bg() {
+      const m = openModal(`<h2>🖼️ Fond de l'écran</h2>
+        <div class="row wrap"><button type="button" class="btn primary" id="sc-bg">${sc.background_url ? 'Changer le fond' : 'Choisir un fond'}</button>
+        ${sc.background_url ? '<button type="button" class="btn ghost" id="sc-bg-del">Retirer le fond</button>' : ''}</div>
+        <p class="small muted">Une image large (au moins 1920 × 1080) : une salle de taverne, une plage, un salon… Les avatars marchent dans la « zone de marche » que tu règles ensuite.</p>
+        <div class="actions"><button type="button" class="btn ghost" data-close>Fermer</button></div>`);
+      $('#sc-bg', m).onclick = async () => { const url = await chooseImage('Fond de l\'écran', 2560); if (url) { await save({ background_url: url }); toast('Fond enregistré 🖼️'); } };
+      $('#sc-bg-del', m)?.addEventListener('click', () => { closeModal(); save({ background_url: null }); });
+    },
+    decor() { decorMode(); },
+    floor() {
+      const m = openModal(`<h2>🚶 Zone de marche</h2>
+        <p class="small">Règle où les avatars peuvent marcher (le sol de ton décor). Plus ils sont bas, plus ils paraissent proches et grands.</p>
+        <label class="set-line">Haut de la zone <b id="ft-v">${sc.floor_top}%</b><input type="range" id="ft" min="0" max="90" step="1" value="${sc.floor_top}"></label>
+        <label class="set-line">Bas de la zone <b id="fb-v">${sc.floor_bottom}%</b><input type="range" id="fb" min="10" max="100" step="1" value="${sc.floor_bottom}"></label>
+        <div class="actions"><button type="button" class="btn primary" data-close>OK</button></div>`);
+      root.classList.add('show-floor');
+      const upd = () => {
+        let a = +$('#ft', m).value, b = +$('#fb', m).value; if (b < a + 5) b = Math.min(100, a + 5);
+        $('#ft-v', m).textContent = a + '%'; $('#fb-v', m).textContent = b + '%';
+        sc.floor_top = a; sc.floor_bottom = b; paintScene();
+      };
+      $('#ft', m).oninput = upd; $('#fb', m).oninput = upd;
+      modal._onClose = () => { root.classList.remove('show-floor'); save({ floor_top: sc.floor_top, floor_bottom: sc.floor_bottom }); };
+    },
+    info() {
+      const m = openModal(`<h2>✏️ Nom & bulles</h2>
+        <div class="form"><label>Nom de l'écran<input id="sc-name" value="${esc(sc.name)}" maxlength="40"></label>
+        <label>Emoji<input id="sc-emo" value="${esc(sc.emoji)}" maxlength="4"></label>
+        <label>Ce que les avatars disent dans leurs bulles (séparé par des espaces)<input id="sc-bub" value="${esc(sc.bubbles)}"></label></div>
+        <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><button type="button" class="btn primary" id="sc-ok">Enregistrer</button></div>`);
+      $('#sc-ok', m).onclick = () => { const p = { name: $('#sc-name', m).value.trim() || 'Écran', emoji: $('#sc-emo', m).value.trim(), bubbles: $('#sc-bub', m).value.trim() }; closeModal(); save(p); };
+    },
+  };
+  app.querySelectorAll('[data-st]').forEach(b => b.addEventListener('click', () => tools[b.dataset.st]()));
+
+  // Mode décor : ajouter des images, les glisser, changer leur taille, les mettre devant/derrière les avatars
+  function decorMode() {
+    if (root.classList.contains('placing')) return;
+    const orig = JSON.parse(JSON.stringify(sc.decor || []));
+    root.classList.add('placing');
+    let sel = (sc.decor || []).length - 1;
+    const bar = document.createElement('div'); bar.className = 'pd-bar sc-bar';
+    bar.innerHTML = `<span>✋ Glisse les images · touche-en une pour la régler</span>
+      <button type="button" class="btn primary sm" data-d="add">➕ Image</button>
+      <span class="pd-sz"><button type="button" class="btn ghost sm" data-d="-">➖</button><button type="button" class="btn ghost sm" data-d="+">➕</button>
+      <button type="button" class="btn ghost sm" data-d="z">⇅ Devant/derrière</button><button type="button" class="btn ghost sm" data-d="flip">↔️</button><button type="button" class="btn ghost sm" data-d="del">🗑️</button></span>
+      <button type="button" class="btn ghost sm" data-d="cancel">Annuler</button><button type="button" class="btn primary sm" data-d="save">Enregistrer</button>`;
+    document.body.appendChild(bar);
+    const mark = () => root.querySelectorAll('.sd').forEach(el => el.classList.toggle('sel', +el.dataset.i === sel));
+    const repaint = () => { paintScene(); mark(); };
+    mark();
+    let drag = null, off = [0, 0];
+    const down = e => {
+      const el = e.target.closest('.sd'); if (!el) return;
+      e.preventDefault(); sel = +el.dataset.i; drag = el; mark();
+      const r = root.getBoundingClientRect(), d = sc.decor[sel];
+      off = [(e.clientX - r.left) / r.width * 100 - d.x, (e.clientY - r.top) / r.height * 100 - d.y];
+    };
+    const move = e => {
+      if (!drag) return;
+      const r = root.getBoundingClientRect(), d = sc.decor[sel];
+      d.x = Math.round(Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100 - off[0])) * 10) / 10;
+      d.y = Math.round(Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100 - off[1])) * 10) / 10;
+      drag.style.left = d.x + '%'; drag.style.top = d.y + '%';
+    };
+    const up = () => { drag = null; };
+    root.addEventListener('pointerdown', down); window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    const stop = () => { root.classList.remove('placing'); bar.remove(); root.removeEventListener('pointerdown', down); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); root.querySelectorAll('.sd.sel').forEach(x => x.classList.remove('sel')); };
+    bar.addEventListener('click', async e => {
+      const k = e.target.closest('[data-d]')?.dataset.d; if (!k) return;
+      const d = sc.decor[sel];
+      if (k === 'add') { const url = await chooseImage('Ajouter un élément de décor', 1400); if (url) { sc.decor = [...(sc.decor || []), { url, x: 50, y: 60, w: 18, z: 'back' }]; sel = sc.decor.length - 1; repaint(); } }
+      else if (k === '+' && d) { d.w = Math.min(100, (d.w || 18) * 1.15); repaint(); }
+      else if (k === '-' && d) { d.w = Math.max(3, (d.w || 18) / 1.15); repaint(); }
+      else if (k === 'z' && d) { d.z = d.z === 'front' ? 'back' : 'front'; repaint(); toast(d.z === 'front' ? 'Devant les avatars' : 'Derrière les avatars'); }
+      else if (k === 'flip' && d) { d.flip = !d.flip; repaint(); }
+      else if (k === 'del' && d) { sc.decor.splice(sel, 1); sel = sc.decor.length - 1; repaint(); }
+      else if (k === 'cancel') { stop(); sc.decor = orig; paintScene(); }
+      else if (k === 'save') { stop(); await save({ decor: sc.decor }); toast('Décor enregistré 🧩'); }
+    });
+  }
+}
+
+// Paramètres → Écrans d'attente : liste, création, suppression
+async function drawScenesAdmin(box) {
+  const list = (await safe(() => api.listScenes())) || [];
+  box.innerHTML = `<section class="card set-card">
+      <div class="page-head"><h2>🎬 Écrans d'attente</h2><button class="btn primary sm" id="sc-new">+ Nouvel écran</button></div>
+      <p class="small">Crée des écrans à afficher pendant vos soirées (taverne, salon, plage…). Tu choisis le fond, le décor et qui est présent : les avatars vivent leur vie tout seuls. L'écran des tournois, lui, se trouve sur chaque compétition (mode soirée).</p>
+      <div class="sc-list">${list.map(s => `<div class="sc-item">
+        <span class="sc-thumb" style="${s.background_url ? `background-image:url('${esc(s.background_url)}')` : ''}">${s.background_url ? '' : esc(s.emoji || '🎬')}</span>
+        <span class="sc-info"><b>${esc(s.emoji || '')} ${esc(s.name)}</b><small>${(s.members || []).length} personne(s) · ${(s.decor || []).length} élément(s) de décor</small></span>
+        <a class="btn primary sm" href="#/ecran/${esc(s.id)}">Ouvrir</a><button class="btn danger sm" data-scdel="${esc(s.id)}">✕</button></div>`).join('') || '<p class="empty">Aucun écran pour l\'instant.</p>'}</div>
+    </section>`;
+  $('#sc-new', box).onclick = () => {
+    const m = openModal(`<h2>Nouvel écran d'attente</h2>
+      <div class="sc-tpl">${[['🍺', 'Taverne', '🍺 🍻 🎲 😂 🎵 🍕 💬 🃏'], ['🛋️', 'Salon', '🎮 😂 🍿 💬 🥤 😴'], ['🏖️', 'Plage', '🌊 ☀️ 🍹 🏐 😎 🐚'], ['🎄', 'Noël', '🎁 🎄 ⛄ 🍪 ☕ ✨'], ['🎬', 'Autre', '💬 😂 🎉']].map(([e, n, b]) => `<button type="button" data-tpl="${esc(e)}|${esc(n)}|${esc(b)}"><span>${e}</span>${n}</button>`).join('')}</div>
+      <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button></div>`);
+    m.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => safe(async () => {
+      const [emoji, name, bubbles] = b.dataset.tpl.split('|');
+      const s = await api.createScene({ emoji, name, bubbles });
+      closeModal(); location.hash = '#/ecran/' + s.id;
+    }));
+  };
+  box.querySelectorAll('[data-scdel]').forEach(b => b.onclick = () => safe(async () => {
+    if (!confirm('Supprimer cet écran ?')) return;
+    await api.deleteScene(b.dataset.scdel); drawScenesAdmin(box);
+  }));
+}
