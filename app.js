@@ -1,9 +1,9 @@
 // =====================================================================
 //  Site de l'île Wuhu — interface
 // =====================================================================
-import { api, DEMO } from './api.js?v=20261120h';
+import { api, DEMO } from './api.js?v=20261123a';
 import { CONFIG } from './config.js';
-import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261120h';
+import { resolveBracket, roundTitle, bracketFromPlacement, placementFor, syncPlacement, shuffled } from './bracket.js?v=20261123a';
 
 const app = document.getElementById('app');
 const state = { me: null, roles: new Map(), colors: new Map(), items: new Map(), balances: new Map(), theme: {}, icons: {} };
@@ -316,6 +316,7 @@ function renderNav() {
            <a href="#/pantheon" class="${sub('#/pantheon')}">🏛️ Panthéon</a>
            <a href="#/quiz" class="${sub('#/quiz')}">🧠 Quiz du jour</a>
            <a href="#/blindtest" class="${sub('#/blindtest')}">🎵 Blind test</a>
+           <a href="#/idees" class="${sub('#/idees')}">💡 Boîte à idées</a>
            <a href="#/defis" class="${sub('#/defis')}">⚔️ Mes défis${state.duelCount ? `<span class="notif in">${state.duelCount}</span>` : ''}</a>
            <a href="#/succes" class="${sub('#/succes')}">🏅 Mes succès${state.achCount ? `<span class="notif in">${state.achCount}</span>` : ''}</a>
            ${me.is_admin ? `<div class="mm-sep">Admin</div>
@@ -366,6 +367,7 @@ async function route() {
     case 'blindtest': return parts[1] === 'salon' ? pageBtRoom(parts[2]) : pageBlindtest();
     case 'soiree': return pageParty(parts[1]);
     case 'ecran': return pageScene(parts[1]);
+    case 'idees': return pageIdeas();
     case 'parametres': return state.me.is_admin ? pageSettings(parts[1] || 'fond') : pageHome();
     default: return pageHome();
   }
@@ -458,6 +460,7 @@ async function pageHome() {
       <span class="yt-txt"><b>🎵 La playlist de l'île</b><small>Notre playlist collaborative YouTube : écoute-la et ajoute tes sons préférés !</small></span>
       <span class="yt-go">Écouter →</span></a>
     <a class="card bt-home" href="#/blindtest"><span class="bt-home-ic">🎧</span><span><b>Blind test</b><small>La musique du jour et des parties en multijoueur avec tes amis !</small></span><span class="bt-home-go">Jouer →</span></a>
+    <a class="card bt-home idea-home" href="#/idees"><span class="bt-home-ic">💡</span><span><b>Boîte à idées</b><small>Propose un jeu, un tournoi ou une soirée, et vote pour les idées des autres !</small></span><span class="bt-home-go">Proposer →</span></a>
     ${todo.length ? `<section><h2>${todo.length > 1 ? 'Tes prochains matchs' : 'Ton prochain match'}</h2>
       <div class="grid">${todo.map(x => vsCard(x, me, oppOf(x, people))).join('')}</div></section>` : ''}
     ${liveComps.length ? `<section><h2>Compétitions</h2><div class="grid comps">${liveComps.map(competitionCard).join('')}</div></section>` : ''}
@@ -3955,4 +3958,93 @@ async function drawScenesAdmin(box) {
     if (!confirm('Supprimer cet écran ?')) return;
     await api.deleteScene(b.dataset.scdel); drawScenesAdmin(box);
   }));
+}
+
+// =====================================================================
+//  Boîte à idées : les membres proposent des jeux / tournois / soirées et votent
+// =====================================================================
+const IDEA_CATS = { tournoi: ['🏆', 'Tournoi'], soiree: ['🎉', 'Soirée'], defi: ['⚔️', 'Défi'], site: ['🏝️', 'Site / serveur'], autre: ['✨', 'Autre'] };
+const IDEA_ST = { new: ['🆕', 'Nouvelle'], liked: ['👀', 'On aime bien'], planned: ['📅', 'Prévue'], done: ['✅', 'Réalisée'], no: ['🚫', 'Pas retenue'] };
+async function pageIdeas() {
+  app.innerHTML = `<div class="loading">Chargement…</div>`;
+  const [ideas, members] = await Promise.all([safe(() => api.listIdeas()), safe(() => api.listMembers())]);
+  if (!ideas) { app.innerHTML = '<p class="empty">Impossible de charger la boîte à idées.</p>'; return; }
+  const people = new Map((members || []).map(m => [m.id, m]));
+  const me = state.me, admin = me.is_admin;
+  let sort = 'top', cat = 'all', list = ideas;
+  app.innerHTML = `
+    <div class="page-head"><h1>💡 Boîte à idées</h1><p class="muted">Un jeu, un tournoi, une soirée que tu aimerais voir sur l'île ? Propose-le, et vote ❤️ pour les idées des autres. Les plus aimées passent en premier !</p></div>
+    <form class="card idea-form" id="idea-form">
+      <div class="idea-cats">${Object.entries(IDEA_CATS).map(([k, [e, l]], i) => `<label class="idea-chip"><input type="radio" name="cat" value="${k}" ${i ? '' : 'checked'}><span>${e} ${l}</span></label>`).join('')}</div>
+      <input name="title" maxlength="80" required minlength="3" placeholder="Ton idée en une phrase (ex. : Tournoi Smash en 2 contre 2)">
+      <input name="game" maxlength="60" placeholder="Jeu concerné (facultatif)" list="idea-games">
+      <textarea name="description" maxlength="800" rows="3" placeholder="Explique un peu : règles, format, quand… (facultatif)"></textarea>
+      <div class="idea-send"><small class="muted" id="idea-left">800</small><button class="btn primary" type="submit">📮 Envoyer mon idée</button></div>
+    </form>
+    <div class="idea-bar">
+      <div class="tabs" id="idea-sort"><button data-s="top" class="on">❤️ Les plus aimées</button><button data-s="new">🕒 Récentes</button>${'<button data-s="mine">🙋 Mes idées</button>'}</div>
+      <select id="idea-cat"><option value="all">Toutes les catégories</option>${Object.entries(IDEA_CATS).map(([k, [e, l]]) => `<option value="${k}">${e} ${l}</option>`).join('')}</select>
+    </div>
+    <div class="idea-list" id="idea-list"></div>`;
+  const form = $('#idea-form'), box = $('#idea-list');
+  const games = [...new Set(ideas.map(x => x.game).filter(Boolean))];
+  form.insertAdjacentHTML('beforeend', `<datalist id="idea-games">${games.map(g => `<option value="${esc(g)}">`).join('')}</datalist>`);
+  form.description.addEventListener('input', () => { $('#idea-left').textContent = 800 - form.description.value.length; });
+  const card = x => {
+    const p = people.get(x.user_id) || { id: x.user_id, username: 'Membre' };
+    const voted = x.voters.includes(me.id), [ce, cl] = IDEA_CATS[x.category] || IDEA_CATS.autre, [se, sl] = IDEA_ST[x.status] || IDEA_ST.new;
+    const mine = x.user_id === me.id;
+    return `<article class="card idea st-${x.status}" data-id="${esc(x.id)}">
+      <button class="idea-vote ${voted ? 'on' : ''}" data-a="vote" ${mine ? 'title="C\'est ton idée"' : ''}><span>${voted ? '❤️' : '🤍'}</span><b>${x.voters.length}</b></button>
+      <div class="idea-body">
+        <div class="idea-tags"><span class="idea-cat">${ce} ${cl}</span><span class="idea-st">${se} ${sl}</span>${x.game ? `<span class="idea-game">🎮 ${esc(x.game)}</span>` : ''}</div>
+        <h3>${esc(x.title)}</h3>
+        ${x.description ? `<p class="idea-desc">${esc(x.description)}</p>` : ''}
+        ${x.admin_note ? `<p class="idea-note">💬 <b>Réponse de l'équipe :</b> ${esc(x.admin_note)}</p>` : ''}
+        <div class="idea-foot"><a href="#/profil/${esc(p.id)}">${avatar(p, 'av xs')} ${uname(p)}</a><span class="muted">· ${new Date(x.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>
+          ${admin ? `<select data-a="status">${Object.entries(IDEA_ST).map(([k, [e, l]]) => `<option value="${k}" ${k === x.status ? 'selected' : ''}>${e} ${l}</option>`).join('')}</select><button class="btn ghost sm" data-a="note">💬 Répondre</button>` : ''}
+          ${admin || (mine && x.status === 'new') ? '<button class="btn ghost sm danger-t" data-a="del">Supprimer</button>' : ''}</div>
+      </div></article>`;
+  };
+  const draw = () => {
+    let l = list.filter(x => cat === 'all' || x.category === cat);
+    if (sort === 'mine') l = l.filter(x => x.user_id === me.id);
+    const rank = x => ['done', 'no'].includes(x.status) ? 1 : 0;
+    l = [...l].sort(sort === 'top' ? (a, b) => rank(a) - rank(b) || b.voters.length - a.voters.length || b.created_at.localeCompare(a.created_at) : (a, b) => b.created_at.localeCompare(a.created_at));
+    box.innerHTML = l.map(card).join('') || `<p class="empty">${sort === 'mine' ? 'Tu n\'as encore proposé aucune idée. Lance-toi !' : 'Aucune idée pour l\'instant. Sois le premier !'}</p>`;
+  };
+  const reload = async () => { list = await api.listIdeas(); draw(); };
+  draw();
+  $('#idea-sort').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (!b) return; sort = b.dataset.s; $('#idea-sort').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  $('#idea-cat').addEventListener('change', e => { cat = e.target.value; draw(); });
+  form.addEventListener('submit', e => { e.preventDefault(); safe(async () => {
+    const f = new FormData(form), title = f.get('title').trim();
+    if (title.length < 3) return toast('Ton idée est un peu courte 😉');
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      await api.createIdea({ title, game: f.get('game').trim() || null, description: f.get('description').trim() || null, category: f.get('cat') });
+      form.reset(); $('#idea-left').textContent = 800; toast('Merci ! Ton idée est dans la boîte 💡'); sort = 'new';
+      $('#idea-sort').querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.s === 'new'));
+      await reload();
+    } catch (err) { toast(/row-level|policy/i.test(err.message) ? 'Tu as déjà envoyé 5 idées aujourd\'hui, reviens demain !' : err.message); }
+    finally { btn.disabled = false; }
+  }); });
+  box.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (!b || b.tagName === 'SELECT') return; safe(async () => {
+    const id = b.closest('.idea').dataset.id, x = list.find(y => y.id === id), a = b.dataset.a;
+    if (a === 'vote') {
+      const on = !x.voters.includes(me.id);
+      x.voters = on ? [...x.voters, me.id] : x.voters.filter(u => u !== me.id); draw();
+      try { await api.voteIdea(id, on); } catch (err) { await reload(); throw err; }
+    } else if (a === 'del') {
+      if (!confirm('Supprimer cette idée ?')) return;
+      await api.deleteIdea(id); await reload();
+    } else if (a === 'note') {
+      const n = prompt('Ta réponse visible par tous (laisse vide pour l\'effacer) :', x.admin_note || '');
+      if (n === null) return;
+      await api.updateIdea(id, { admin_note: n.trim().slice(0, 300) || null }); await reload();
+    }
+  }); });
+  box.addEventListener('change', e => { const sel = e.target.closest('select[data-a=status]'); if (!sel) return; safe(async () => {
+    await api.updateIdea(sel.closest('.idea').dataset.id, { status: sel.value }); toast('Statut mis à jour'); await reload();
+  }); });
 }

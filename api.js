@@ -3,7 +3,7 @@
 //  n'est pas encore rempli, pour voir le site tout de suite).
 // =====================================================================
 import { CONFIG } from './config.js';
-import { resolveBracket } from './bracket.js?v=20261120h';
+import { resolveBracket } from './bracket.js?v=20261123a';
 
 export const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('TON-PROJET');
 
@@ -106,6 +106,16 @@ async function supabaseApi() {
     // ----- Défis amicaux (aussi lancés depuis Discord avec /defi) -----
     myDuels: async () => ok(await sb.rpc('wuhu_my_duels')),
     liveDuels: async () => ok(await sb.rpc('wuhu_live_duels')),
+    // ----- Boîte à idées -----
+    listIdeas: async () => {
+      const [i, v] = await Promise.all([sb.from('wuhu_ideas').select('*').order('created_at', { ascending: false }).limit(300), sb.from('wuhu_idea_votes').select('idea_id, user_id')]);
+      const ideas = ok(i), votes = ok(v);
+      return ideas.map(x => ({ ...x, voters: votes.filter(y => y.idea_id === x.id).map(y => y.user_id) }));
+    },
+    createIdea: async p => ok(await sb.from('wuhu_ideas').insert(p).select().single()),
+    updateIdea: async (id, patch) => ok(await sb.from('wuhu_ideas').update(patch).eq('id', id)),
+    deleteIdea: async id => ok(await sb.from('wuhu_ideas').delete().eq('id', id)),
+    voteIdea: async (id, on) => on ? ok(await sb.from('wuhu_idea_votes').insert({ idea_id: id })) : ok(await sb.from('wuhu_idea_votes').delete().eq('idea_id', id).eq('user_id', (await sb.auth.getUser()).data.user.id)),
     // ----- Écrans d'attente perso (taverne…) -----
     listScenes: async () => ok(await sb.from('wuhu_scenes').select('*').order('created_at')),
     getScene: async id => ok(await sb.from('wuhu_scenes').select('*').eq('id', id).maybeSingle()),
@@ -296,6 +306,11 @@ function demoApi() {
   const SLOT = { frame: 'item_frame', banner: 'item_banner', title: 'item_title', victory: 'item_victory' };
   let ledger = [];
   let gallery = [];
+  let ideas = [
+    { id: 'id1', user_id: 'u2', title: 'Tournoi Mario Kart 8 en équipes de 2', game: 'Mario Kart 8 Deluxe', description: 'Deux par équipe, les points des deux joueurs s\'additionnent. 4 courses par manche.', category: 'tournoi', status: 'planned', admin_note: 'Prévu pour janvier !', created_at: new Date(Date.now() - 864e5 * 3).toISOString(), voters: ['u1', 'u3', 'u4', 'u5'] },
+    { id: 'id2', user_id: 'u3', title: 'Soirée Mario Party le vendredi', game: 'Super Mario Party Jamboree', description: '', category: 'soiree', status: 'new', admin_note: null, created_at: new Date(Date.now() - 864e5).toISOString(), voters: ['u2', 'u5'] },
+    { id: 'id3', user_id: 'u4', title: 'Défi : record sur Wii Sports Resort archerie', game: 'Wii Sports Resort', description: 'Le meilleur score de la semaine gagne des rubis.', category: 'defi', status: 'done', admin_note: null, created_at: new Date(Date.now() - 864e5 * 9).toISOString(), voters: ['u0', 'u1'] },
+  ];
   let scenes = [{ id: 'sc1', name: 'Taverne', emoji: '🍺', background_url: null, members: ['u0', 'u1', 'u2', 'u3', 'u4'], decor: [], floor_top: 55, floor_bottom: 95, bubbles: '🍺 🍻 🎲 😂 🎵 🍕 💬 🃏' }];
   const sceneSubs = new Set();
   const dayStr = d => new Date(Date.now() + d * 864e5).toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
@@ -422,6 +437,11 @@ function demoApi() {
     async listReactions(tid) { return clone(reactions.filter(r => r.tournament_id === tid)); },
     async listDuels(uid) { return clone(duels.filter(d => !uid || d.challenger === uid || d.opponent === uid)); },
     async myDuels() { return { me: 'D-u0', duels: clone(live) }; },
+    async listIdeas() { return clone(ideas); },
+    async createIdea(p) { const x = { id: 'id' + Date.now(), user_id: 'u0', status: 'new', admin_note: null, created_at: new Date().toISOString(), voters: [], ...p }; ideas.unshift(x); return clone(x); },
+    async updateIdea(id, patch) { Object.assign(ideas.find(x => x.id === id) || {}, patch); },
+    async deleteIdea(id) { ideas = ideas.filter(x => x.id !== id); },
+    async voteIdea(id, on) { const x = ideas.find(y => y.id === id); if (!x) return; x.voters = x.voters.filter(u => u !== 'u0'); if (on) x.voters.push('u0'); },
     async listScenes() { return clone(scenes); },
     async getScene(id) { return clone(scenes.find(s => s.id === id) || null); },
     async createScene(p) { const s = { id: 'sc' + Date.now(), background_url: null, members: [], decor: [], floor_top: 55, floor_bottom: 95, bubbles: '🍺 🍻 🎲 😂 🎵', ...p }; scenes.push(s); return clone(s); },
